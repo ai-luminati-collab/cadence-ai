@@ -248,7 +248,11 @@ interface ResearchWaitingProps {
 }
 
 export function ResearchWaiting({ brandName, elapsedSeconds, onCancel }: ResearchWaitingProps) {
-  const [activeTab, setActiveTab] = React.useState<'tour' | 'game' | 'quotes'>('tour')
+  // Randomly select one activity on mount
+  const [activity] = React.useState<'tour' | 'game' | 'quotes'>(() => {
+    const activities = ['tour', 'game', 'quotes'] as const
+    return activities[Math.floor(Math.random() * activities.length)]
+  })
   const [tourSlide, setTourSlide] = React.useState(0)
   const [quoteIndex, setQuoteIndex] = React.useState(0)
 
@@ -294,28 +298,17 @@ export function ResearchWaiting({ brandName, elapsedSeconds, onCancel }: Researc
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 p-1 rounded-xl bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)]">
-        {([
-          { id: 'tour' as const, label: 'Product Tour', icon: Sparkles },
-          { id: 'game' as const, label: 'Snake Game', icon: Gamepad2 },
-          { id: 'quotes' as const, label: 'Quotes', icon: BookOpen },
-        ]).map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg text-xs font-medium transition-all ${
-              activeTab === tab.id 
-                ? 'bg-[var(--color-accent-600)] text-white shadow-lg' 
-                : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]'
-            }`}>
-            <tab.icon className="w-3.5 h-3.5" />
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
       {/* Content */}
-      <div className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-bg-elevated)]/50 p-6 min-h-[340px] flex items-center justify-center">
-        {activeTab === 'tour' && (
+      <div className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-bg-elevated)]/50 p-6 min-h-[340px] flex flex-col items-center justify-center relative overflow-hidden">
+        
+        {/* Subtle indicator of what activity this is */}
+        <div className="absolute top-4 right-4 flex items-center gap-1.5 px-2 py-1 rounded-md bg-[var(--color-bg-base)] border border-[var(--color-border-subtle)] opacity-50">
+           {activity === 'tour' && <><Sparkles className="w-3 h-3 text-[var(--color-accent-400)]" /><span className="text-[10px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wider">Product Tour</span></>}
+           {activity === 'game' && <><Gamepad2 className="w-3 h-3 text-[var(--color-accent-400)]" /><span className="text-[10px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wider">Brain Break</span></>}
+           {activity === 'quotes' && <><BookOpen className="w-3 h-3 text-[var(--color-accent-400)]" /><span className="text-[10px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wider">Wisdom</span></>}
+        </div>
+
+        {activity === 'tour' && (
           <div className="w-full space-y-4 animate-in fade-in duration-300">
             <div className="text-center space-y-3">
               <div className="text-5xl">{PRODUCT_TOUR_SLIDES[tourSlide].icon}</div>
@@ -345,9 +338,9 @@ export function ResearchWaiting({ brandName, elapsedSeconds, onCancel }: Researc
           </div>
         )}
 
-        {activeTab === 'game' && <SnakeGame />}
+        {activity === 'game' && <SnakeGame />}
 
-        {activeTab === 'quotes' && (
+        {activity === 'quotes' && (
           <div className="w-full text-center space-y-6 animate-in fade-in duration-500">
             <div className="text-4xl opacity-20">❝</div>
             <blockquote className="text-lg font-display text-[var(--color-text-primary)] leading-relaxed italic max-w-md mx-auto transition-all duration-500">
