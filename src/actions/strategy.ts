@@ -100,7 +100,14 @@ export async function generateBrandStrategy(brandDetails: BrandInfo, isRefresh =
     const res = await askExpertAgent(prompt);
     if (!res.success) throw new Error("Agent failed execution.");
 
-    let resultText = res.data.replace(/```json/g, '').replace(/```/g, '').trim();
+    let resultText = res.data.replace(/```json/ig, '').replace(/```/g, '').trim();
+    // Sometimes OpenAI adds preamble text before the JSON block starts
+    const firstBrace = resultText.indexOf('{');
+    const lastBrace = resultText.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1) {
+      resultText = resultText.substring(firstBrace, lastBrace + 1);
+    }
+    
     return { success: true, data: JSON.parse(resultText) };
   } catch (error: any) {
     console.error("AI Strategy Generation Failed:", error);

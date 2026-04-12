@@ -106,6 +106,7 @@ export interface BrandInfo {
   // Visual DNA
   primaryColorHex?: string
   secondaryColorHex?: string
+  additionalColors?: string[]
   referenceUrls: string[]
   brandAssets?: string[] // Stores Supabase asset URLs
   

@@ -356,8 +356,8 @@ export default function OnboardingPage() {
       } else {
         setError(response.error || "Strategy generation failed.")
       }
-    } catch (err) {
-      setError("An unexpected error occurred.")
+    } catch (err: any) {
+      setError(err?.message || "An unexpected error occurred.")
     } finally {
       setIsGenerating(false)
     }
@@ -980,6 +980,31 @@ export default function OnboardingPage() {
                 </div>
               </div>
 
+              <div className="space-y-2">
+                <label className="text-sm font-bold uppercase tracking-wider text-slate-500">Additional Palette Colors</label>
+                <div className="flex flex-wrap gap-3">
+                  {(formData.additionalColors || []).map((color, i) => (
+                    <div key={i} className="flex items-center gap-2 bg-white p-2 rounded-xl border-2 border-slate-200">
+                      <input type="color" value={color} onChange={e => {
+                        const newColors = [...(formData.additionalColors || [])]
+                        newColors[i] = e.target.value
+                        updateForm('additionalColors', newColors)
+                      }} className="w-8 h-8 rounded-lg cursor-pointer border-none bg-transparent" />
+                      <button type="button" onClick={() => {
+                        const newColors = [...(formData.additionalColors || [])]
+                        newColors.splice(i, 1)
+                        updateForm('additionalColors', newColors)
+                      }} className="text-red-500 hover:text-red-700 p-1"><X className="w-3 h-3" /></button>
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => {
+                     updateForm('additionalColors', [...(formData.additionalColors || []), '#e2e8f0'])
+                  }} className="flex items-center justify-center w-[52px] h-[52px] rounded-xl border-2 border-dashed border-slate-300 text-slate-400 hover:border-slate-500 hover:text-slate-600 transition-colors">
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
 
               <div className="space-y-3 pt-4 border-t border-slate-100">
                 <label className="text-sm font-bold uppercase tracking-wider text-slate-500">Reference URLs (websites, portfolios, competitors)</label>
@@ -1003,12 +1028,24 @@ export default function OnboardingPage() {
                 <label className="text-sm font-bold uppercase tracking-wider text-slate-500">Brand Assets (logos, moodboards, guidelines)</label>
                 <p className="text-xs text-slate-400">Upload PNG, JPG, PDF, PPT, or ZIP files up to 100MB each.</p>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {formData.brandAssets?.map((url, i) => (
-                    <div key={i} className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 group bg-slate-50">
-                      <img src={url} className="w-full h-full object-cover" alt="" />
-                      <button type="button" onClick={() => { const arr = [...(formData.brandAssets || [])]; arr.splice(i, 1); updateForm('brandAssets', arr) }} className="absolute top-1 right-1 p-1 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><X className="w-3 h-3"/></button>
-                    </div>
-                  ))}
+                  {formData.brandAssets?.map((url, i) => {
+                    const isDoc = url.toLowerCase().includes('.pdf') || url.toLowerCase().includes('.ppt') || url.toLowerCase().includes('.zip') || url.toLowerCase().includes('.doc')
+                    return (
+                      <div key={i} className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 group bg-slate-50 flex flex-col items-center justify-center">
+                        {isDoc ? (
+                          <a href={url} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center justify-center w-full h-full text-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                            <Paperclip className="w-8 h-8 mb-2" />
+                            <span className="text-[10px] uppercase font-bold tracking-wider px-2 text-center w-full truncate">Download Doc {i+1}</span>
+                          </a>
+                        ) : (
+                          <a href={url} target="_blank" rel="noopener noreferrer" className="w-full h-full block">
+                            <img src={url} className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity" alt="" />
+                          </a>
+                        )}
+                        <button type="button" onClick={(e) => { e.preventDefault(); const arr = [...(formData.brandAssets || [])]; arr.splice(i, 1); updateForm('brandAssets', arr) }} className="absolute top-1 right-1 p-1 bg-black/60 text-white rounded-full opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity z-10"><X className="w-3 h-3"/></button>
+                      </div>
+                    )
+                  })}
                   <label className="aspect-square rounded-xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors text-slate-400">
                     <UploadCloud className="w-6 h-6 mb-1" />
                     <span className="text-[10px] font-bold">{isUploading ? 'Uploading...' : 'Upload'}</span>
