@@ -1,5 +1,7 @@
 'use server'
 
+export const maxDuration = 300
+
 import { askExpertAgent } from '@/lib/openai-agent'
 import { BrandInfo, Strategy } from '@/stores/brand'
 import { TopicalEvent } from './topicals'

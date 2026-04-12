@@ -1,5 +1,7 @@
 'use server'
 
+export const maxDuration = 300
+
 import { askExpertAgent } from '@/lib/openai-agent'
 import { BrandInfo } from '@/stores/brand'
 import { buildProductContext } from '@/lib/product-context'

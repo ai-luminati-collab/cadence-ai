@@ -782,7 +782,7 @@ export default function OnboardingPage() {
               <div className="space-y-4">
                 <label className="text-sm font-bold uppercase tracking-wider text-slate-500">Scope of Work (Content Frequency)</label>
                 <div className="space-y-3">
-                  {formData.platforms?.filter(p => ["Instagram", "Facebook", "LinkedIn", "X (Twitter)", "TikTok", "YouTube", "Pinterest", "Snapchat", "Threads"].includes(p)).map(platform => {
+                  {formData.platforms?.map(platform => {
                      const currentFreq = formData.contentFrequency?.[platform]
                      return (
                         <div key={platform} className="p-4 bg-white border border-slate-200 rounded-xl">
@@ -800,7 +800,7 @@ export default function OnboardingPage() {
                         </div>
                      )
                   })}
-                  {(!formData.platforms || formData.platforms.filter(p => ["Instagram", "Facebook", "LinkedIn", "X (Twitter)", "TikTok", "YouTube", "Pinterest", "Snapchat", "Threads"].includes(p)).length === 0) && (
+                  {(!formData.platforms || formData.platforms.length === 0) && (
                      <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl text-sm text-slate-500">
                         No Core Social Media platforms were selected in Step 1. Frequency mapping skipped.
                      </div>
