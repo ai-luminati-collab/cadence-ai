@@ -572,15 +572,25 @@ export const useBrandStore = create<BrandState>()(
         getItem: async (name) => {
           if (typeof window === 'undefined') return null
           const { get } = await import('idb-keyval')
-          const val = await get(name)
-          // Fallback: migrate from localStorage if IndexedDB is empty
-          if (!val && typeof localStorage !== 'undefined') {
-            const lsVal = localStorage.getItem(name)
-            if (lsVal) {
+          const key = await getUserStorageKey(name)
+          const val = await get(key)
+          // Fallback: migrate from old un-keyed storage if exists
+          if (!val) {
+            const oldVal = await get(name)
+            if (oldVal) {
               const { set } = await import('idb-keyval')
-              await set(name, lsVal)
-              localStorage.removeItem(name)  // Clean up after migration
-              return JSON.parse(lsVal)
+              await set(key, oldVal) // migrate to user-keyed
+              return JSON.parse(oldVal as string)
+            }
+            // Also check localStorage
+            if (typeof localStorage !== 'undefined') {
+              const lsVal = localStorage.getItem(name)
+              if (lsVal) {
+                const { set } = await import('idb-keyval')
+                await set(key, lsVal)
+                localStorage.removeItem(name)
+                return JSON.parse(lsVal)
+              }
             }
           }
           return val ? JSON.parse(val as string) : null
@@ -588,14 +598,35 @@ export const useBrandStore = create<BrandState>()(
         setItem: async (name, value) => {
           if (typeof window === 'undefined') return
           const { set } = await import('idb-keyval')
-          await set(name, JSON.stringify(value))
+          const key = await getUserStorageKey(name)
+          await set(key, JSON.stringify(value))
         },
         removeItem: async (name) => {
           if (typeof window === 'undefined') return
           const { del } = await import('idb-keyval')
-          await del(name)
+          const key = await getUserStorageKey(name)
+          await del(key)
         },
       },
     }
   )
 )
+
+/** Get a user-specific storage key so each login gets isolated data */
+async function getUserStorageKey(baseName: string): Promise<string> {
+  if (typeof window === 'undefined') return baseName
+  try {
+    const { createBrowserClient } = await import('@supabase/ssr')
+    const supabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+    const { data } = await supabase.auth.getUser()
+    if (data?.user?.id) {
+      return `${baseName}::${data.user.id}`
+    }
+  } catch {
+    // Auth not ready yet, use base key
+  }
+  return baseName
+}
