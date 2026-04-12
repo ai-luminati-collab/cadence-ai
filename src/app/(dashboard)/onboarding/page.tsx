@@ -4,7 +4,8 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useBrandStore, BrandInfo, ProductEntry, ServiceEntry, UploadedDoc } from '@/stores/brand'
 import { generateBrandStrategy } from '@/actions/strategy'
-import { researchBrand, BrandResearch, ToneSample } from '@/actions/research'
+import { researchBrand, BrandResearch, ToneSample, startBrandDeepResearch, pollDeepResearch, synthesizeResearchReport } from '@/actions/research'
+import { ResearchWaiting } from '@/components/ui/ResearchWaiting'
 import { extractEpiphany } from '@/actions/epiphany'
 import { generateClarifyingQuestions, ClarifyingQuestion } from '@/actions/clarify'
 import { AskAIButton, ExpandAIButton } from '@/components/ui/AskAIButton'
@@ -78,6 +79,8 @@ export default function OnboardingPage() {
   const [isResearching, setIsResearching] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [research, setResearch] = React.useState<BrandResearch | null>(null)
+  const [deepResearchId, setDeepResearchId] = React.useState<string | null>(null)
+  const [researchElapsed, setResearchElapsed] = React.useState(0)
   const [clarifyingQuestions, setClarifyingQuestions] = React.useState<ClarifyingQuestion[]>([])
   const [clarifyingAnswers, setClarifyingAnswers] = React.useState<Record<string, string>>({})
   const [isLoadingQuestions, setIsLoadingQuestions] = React.useState(false)
@@ -158,10 +161,100 @@ export default function OnboardingPage() {
     }
   }), [formData, research])
 
-  // --- AI Research ---
+  // --- AI Research (Deep Research with fallback) ---
+  const applyResearchData = (data: BrandResearch) => {
+    setResearch(data)
+    if (data.discoveredAudiences?.length) updateForm('primaryAudiences', data.discoveredAudiences.slice(0, 3))
+    if (data.discoveredGoals?.length) updateForm('primaryGoals', data.discoveredGoals.slice(0, 3))
+    if (data.suggestedTone?.length) updateForm('tone', data.suggestedTone.slice(0, 3))
+    if (data.suggestedPlatforms?.length) updateForm('platforms', data.suggestedPlatforms)
+  }
+
   const runResearch = async () => {
     setIsResearching(true)
     setError(null)
+    setResearchElapsed(0)
+
+    try {
+      // Try Deep Research first
+      const startRes = await startBrandDeepResearch(
+        formData.name || '', 
+        formData.industry || '',
+        formData.website,
+        formData.extraNotes
+      )
+
+      if (startRes.success && startRes.interactionId) {
+        setDeepResearchId(startRes.interactionId)
+        // Start elapsed timer
+        const timerId = setInterval(() => setResearchElapsed(prev => prev + 1), 1000)
+        
+        // Poll for completion
+        let attempts = 0
+        const maxAttempts = 60 // 60 * 10s = 10 min max
+        while (attempts < maxAttempts) {
+          await new Promise(r => setTimeout(r, 10000)) // Wait 10 seconds
+          attempts++
+          
+          const status = await pollDeepResearch(startRes.interactionId)
+          
+          if (status.status === 'completed' && status.report) {
+            clearInterval(timerId)
+            console.log('🔬 Deep Research complete! Synthesizing...')
+            
+            // Synthesize raw report into structured data using GPT-5.4
+            const synthRes = await synthesizeResearchReport(
+              status.report,
+              formData.name || '',
+              formData.industry || ''
+            )
+            
+            if (synthRes.success && synthRes.data) {
+              applyResearchData(synthRes.data)
+            } else {
+              setError(synthRes.error || 'Failed to synthesize research')
+            }
+            setIsResearching(false)
+            setDeepResearchId(null)
+            return
+          }
+          
+          if (status.status === 'failed') {
+            clearInterval(timerId)
+            console.warn('⚠️ Deep Research failed, falling back to quick research...')
+            break // Fall through to quick research
+          }
+        }
+        
+        clearInterval(timerId)
+      }
+      
+      // Fallback: Quick research (if Deep Research failed or wasn't available)
+      console.log('⚡ Running quick research fallback...')
+      const res = await researchBrand(
+        formData.name || '', 
+        formData.industry || '',
+        formData.website,
+        formData.extraNotes
+      )
+      if (res.success && res.data) {
+        applyResearchData(res.data)
+      } else {
+        setError(res.error || 'Research failed')
+      }
+    } catch (e: any) {
+      setError(e.message || 'Research failed')
+    } finally {
+      setIsResearching(false)
+      setDeepResearchId(null)
+    }
+  }
+
+  const cancelDeepResearch = async () => {
+    // Cancel deep research and switch to quick
+    setDeepResearchId(null)
+    setResearchElapsed(0)
+    setIsResearching(true)
     try {
       const res = await researchBrand(
         formData.name || '', 
@@ -170,17 +263,12 @@ export default function OnboardingPage() {
         formData.extraNotes
       )
       if (res.success && res.data) {
-        setResearch(res.data)
-        // Pre-fill ONLY multi-select chips, not text fields
-        if (res.data.discoveredAudiences?.length) updateForm('primaryAudiences', res.data.discoveredAudiences.slice(0, 3))
-        if (res.data.discoveredGoals?.length) updateForm('primaryGoals', res.data.discoveredGoals.slice(0, 3))
-        if (res.data.suggestedTone?.length) updateForm('tone', res.data.suggestedTone.slice(0, 3))
-        if (res.data.suggestedPlatforms?.length) updateForm('platforms', res.data.suggestedPlatforms)
+        applyResearchData(res.data)
       } else {
-        setError(res.error || 'Research failed')
+        setError(res.error || 'Quick research failed')
       }
     } catch (e: any) {
-      setError(e.message || 'Research failed')
+      setError(e.message || 'Quick research failed')
     } finally {
       setIsResearching(false)
     }
@@ -414,17 +502,11 @@ export default function OnboardingPage() {
               </div>
 
               {isResearching ? (
-                <div className="flex flex-col items-center justify-center py-16 space-y-6">
-                  <div className="relative w-20 h-20">
-                    <div className="absolute inset-0 rounded-full border-4 border-blue-200 animate-ping" />
-                    <div className="absolute inset-0 rounded-full border-4 border-blue-500 border-t-transparent animate-spin" />
-                    <Search className="absolute inset-0 m-auto w-6 h-6 text-blue-500" />
-                  </div>
-                  <div className="text-center">
-                    <p className="text-lg font-bold text-slate-900">Researching {formData.name}...</p>
-                    <p className="text-sm text-slate-400 mt-1">Analyzing industry, audience, and competitive landscape</p>
-                  </div>
-                </div>
+                <ResearchWaiting 
+                  brandName={formData.name || 'your brand'}
+                  elapsedSeconds={researchElapsed}
+                  onCancel={deepResearchId ? cancelDeepResearch : undefined}
+                />
               ) : research ? (
                 <div className="space-y-4">
                   <div className="p-5 rounded-xl bg-blue-50 border border-blue-100">
