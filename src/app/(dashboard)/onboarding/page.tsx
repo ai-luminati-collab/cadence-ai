@@ -348,7 +348,15 @@ export default function OnboardingPage() {
     setOnboardingPath('ai')
 
     try {
-      const response = await generateBrandStrategy(finalFormData)
+      // Strip massive base64 strings and blob URLs before sending to the backend 
+      // Vercel serverless has a 4.5MB request size limit, which truncates the JSON if exceeded.
+      const lightFormData = {
+        ...finalFormData,
+        brandReferences: finalFormData.brandReferences?.map(r => ({ ...r, url: '' })),
+        brandAssets: [] 
+      } as BrandInfo
+      
+      const response = await generateBrandStrategy(lightFormData)
       if (response.success && response.data) {
         setStrategy(response.data)
         if (research) setResearchData(research)
