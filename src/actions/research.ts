@@ -1,6 +1,5 @@
 'use server'
 
-export const maxDuration = 300
 
 import { askExpertAgent } from '@/lib/openai-agent'
 import { extractWebsiteContent } from '@/lib/jina'
