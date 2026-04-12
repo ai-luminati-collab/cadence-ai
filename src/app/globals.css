@@ -1,26 +1,148 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@theme {
+  --color-bg-base: #FFFFFF;
+  --color-bg-surface: #F8FAFC;
+  --color-bg-elevated: #F1F5F9;
+  --color-bg-hover: #E2E8F0;
+  --color-bg-input: #FFFFFF;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --color-border-subtle: #F1F5F9;
+  --color-border-default: #E2E8F0;
+  --color-border-hover: #CBD5E1;
+  --color-border-accent: #93C5FD;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #475569;
+  --color-text-tertiary: #64748B;
+  --color-text-muted: #94A3B8;
+
+  /* Solid Pastel Blue Theme */
+  --color-accent-50: #EFF6FF;
+  --color-accent-100: #DBEAFE;
+  --color-accent-400: #60A5FA;
+  --color-accent-500: #3B82F6;
+  --color-accent-600: #2563EB;
+  --color-accent-700: #1D4ED8;
+  --color-accent-900: #1E3A5F;
+  --color-accent-glow: rgba(59, 130, 246, 0.15);
+
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-error: #EF4444;
+  --color-info: #0EA5E9;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-space-grotesk);
+
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+
+    to {
+      height: 0;
+    }
   }
 }
 
+/* ── Light Mode (default) ── */
+:root {
+  color-scheme: light;
+}
+
+/* ── Dark Mode ── */
+:root.dark {
+  color-scheme: dark;
+  --color-bg-base: #0B1120;
+  --color-bg-surface: #111827;
+  --color-bg-elevated: #1E293B;
+  --color-bg-hover: #1E293B;
+  --color-bg-input: #1E293B;
+
+  --color-border-subtle: #1E293B;
+  --color-border-default: #334155;
+  --color-border-hover: #475569;
+  --color-border-accent: #3B82F6;
+
+  --color-text-primary: #F1F5F9;
+  --color-text-secondary: #CBD5E1;
+  --color-text-tertiary: #94A3B8;
+  --color-text-muted: #64748B;
+
+  --color-accent-50: #172554;
+  --color-accent-100: #1E3A5F;
+  --color-accent-900: #1E3A5F;
+  --color-accent-glow: rgba(59, 130, 246, 0.3);
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-hover);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* ── Dark mode overrides for hardcoded elements ── */
+:root.dark .bg-white {
+  background-color: var(--color-bg-surface) !important;
+}
+
+:root.dark .text-slate-800,
+:root.dark .text-slate-700,
+:root.dark .text-slate-600 {
+  color: var(--color-text-primary) !important;
+}
+
+:root.dark .text-slate-500,
+:root.dark .text-slate-400 {
+  color: var(--color-text-secondary) !important;
+}
+
+:root.dark .border-slate-200,
+:root.dark .border-slate-100 {
+  border-color: var(--color-border-default) !important;
+}
+
+:root.dark .bg-slate-50,
+:root.dark .bg-slate-100 {
+  background-color: var(--color-bg-elevated) !important;
 }
