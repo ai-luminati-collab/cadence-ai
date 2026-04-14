@@ -49,21 +49,41 @@ export interface SparringResponse {
 }
 
 export async function chatWithConcept(brandData: BrandData, post: CalendarPost, userPrompt: string): Promise<{ success: boolean; data?: SparringResponse; error?: string }> {
+  const coreProducts = brandData.brandInfo?.coreProducts || []
+  const productListStr = coreProducts.length > 0 
+    ? `\n\nCORE PRODUCTS (GROUND TRUTH — the brand ACTUALLY sells these):\n${coreProducts.map((p, i) => `  ${i+1}. ${p}`).join('\n')}\n`
+    : ''
+
   const prompt = `
     You are an elite, $20k/month Social Media Director paired with a client.
     The current content concept slated for ${post.platform} is:
     Pillar: ${post.pillar}
     Topic/Hook: "${post.topic}"
+    ${productListStr}
 
     The User just gave you this directive to edit the concept:
     "${userPrompt}"
 
-    YOUR JOB IS TO BE A CREATIVE SPARRING PARTNER. DO NOT BE A "YES-MAN".
-    Evaluate their directive against the reality of algorithms on ${post.platform}.
+    YOUR JOB IS TO BE A CREATIVE SPARRING PARTNER — BUT YOU MUST RESPECT FACTUAL CORRECTIONS.
+
+    === CRITICAL DISTINCTION ===
+    There are TWO types of user edits:
     
-    1. If their idea softens the hook, sounds too corporate, or will fail algorithmically, push back. (approved: false, feedback: "We can do this, but for ${post.platform}, this hurts early retention because...")
-    2. If their idea is brilliant or acceptable, accept it. (approved: true, feedback: "Great angle. Applying this.")
-    3. If their idea reveals a fundamental breakthrough about how the brand should communicate, extract it as an 'epiphany' string.
+    TYPE A — FACTUAL CORRECTION: The user is correcting a hallucination or factual error.
+    Examples: "We don't sell wraps", "Our brand name is X not Y", "We are vegetarian only", "Change wrap to sandwich"
+    → You MUST auto-approve these. Do NOT push back on factual corrections. Say "Got it, fixing that."
+    
+    TYPE B — CREATIVE/STRATEGIC PREFERENCE: The user is changing the angle, tone, or approach.
+    Examples: "Make it funnier", "Focus on the price point", "Make it more formal"
+    → Evaluate against ${post.platform}'s algorithm reality. Push back ONLY if it would genuinely hurt performance.
+    ========================
+
+    RULES:
+    1. If the user is correcting a product/factual mistake (TYPE A) → approved: true, no debate.
+    2. If their creative idea softens the hook, sounds corporate, or will fail algorithmically (TYPE B) → push back. (approved: false, feedback: "For ${post.platform}, this may hurt because...")
+    3. If their idea is brilliant or acceptable → accept it. (approved: true, feedback: "Great angle.")
+    4. If their idea reveals a breakthrough about brand communication → extract it as an 'epiphany'.
+    5. NEVER USE EM DASHES (--- or -- or \\u2014).
 
     Respond STRICTLY in this JSON format:
     {
@@ -79,7 +99,12 @@ export async function chatWithConcept(brandData: BrandData, post: CalendarPost, 
     if (!res.success || !res.data) throw new Error("Chat failed")
     
     // Clean potential markdown blocks
-    const cleanStr = res.data.replace(/```json/g, '').replace(/```/g, '').trim()
+    let cleanStr = res.data.replace(/```json/g, '').replace(/```/g, '').trim()
+    const firstBrace = cleanStr.indexOf('{')
+    const lastBrace = cleanStr.lastIndexOf('}')
+    if (firstBrace !== -1 && lastBrace !== -1) {
+      cleanStr = cleanStr.substring(firstBrace, lastBrace + 1)
+    }
     const parsed = JSON.parse(cleanStr) as SparringResponse
     
     return { success: true, data: parsed }

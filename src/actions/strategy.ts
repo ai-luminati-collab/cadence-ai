@@ -90,10 +90,36 @@ export async function generateBrandStrategy(brandDetails: BrandInfo, isRefresh =
        "riskOpportunityMap": "Immediate threats and untapped advantages in this specific market.",
        "competitorAnalysis": "A ruthless breakdown of the top 3 competitors, their weaknesses, and our warfare angle to displace them.",
        "psychographicTriggers": "A list of 5 specific psychological triggers (FOMO, status, belonging, etc.) and how our content will pull them.",
+       "contentPillars": {
+          // For EACH platform in Target Platforms (e.g. "Meta (Instagram & Facebook)", "LinkedIn"), generate 4-5 content pillars.
+          // Each pillar has 3-4 content buckets. Each bucket has a suggested min and max frequency per month.
+          // This is used to structure the content calendar. Be specific to the brand and platform.
+          "PlatformNameHere": [
+            {
+              "id": "pillar-1",
+              "name": "Product Spotlight",
+              "description": "Showcasing core products in aspirational, lifestyle contexts",
+              "buckets": [
+                {
+                  "id": "bucket-1-1",
+                  "name": "Hero Product Close-Ups",
+                  "description": "Macro shots of signature items with ingredient callouts",
+                  "pillarId": "pillar-1",
+                  "suggestedMinPerMonth": 2,
+                  "suggestedMaxPerMonth": 4,
+                  "formats": ["Static", "Carousel"]
+                }
+              ]
+            }
+          ]
+       },
        "lastRefreshed": "${new Date().toISOString()}"
     }
     
     Make sure EVERY component is world-class. Break down the coreNarratives clearly.
+    Make sure the contentPillars are platform-specific - Instagram content buckets differ from LinkedIn.
+    Generate REAL bucket names specific to this brand (not generic marketing buckets).
+    For EACH platform, generate exactly 4-5 pillars with 3-4 buckets each (12-15 total buckets per platform).
     Output must be 100% valid JSON. Do not include \`\`\`json blocks.
   `;
 

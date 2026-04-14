@@ -8,7 +8,7 @@ import {
   LayoutGrid, List, Download, CheckCircle2, Film, UploadCloud
 } from 'lucide-react'
 import { useBrandStore } from '@/stores/brand'
-import { generateContentCalendar } from '@/actions/calendar'
+import { generateContentCalendar, type BucketSelection } from '@/actions/calendar'
 import { generatePostContent } from '@/actions/content'
 import { useRouter } from 'next/navigation'
 import { Toast, useToast } from '@/components/ui/Toast'
@@ -110,6 +110,10 @@ export default function CalendarPage() {
   const [contentMatrix, setContentMatrix] = useState<Record<string, Record<string, Record<string, number>>>>({})
   const [activeMatrixMonth, setActiveMatrixMonth] = useState<string>(upcomingMonths[0].value)
   const [applyToAllMonths, setApplyToAllMonths] = useState(false)
+
+  // Content Buckets
+  const [bucketMode, setBucketMode] = useState<'ai' | 'manual'>('ai')
+  const [selectedBuckets, setSelectedBuckets] = useState<BucketSelection[]>([])
 
   // Helper: update content matrix, optionally mirroring to all months
   const updateMatrix = (month: string, platform: string, format: string, value: number) => {
@@ -314,7 +318,9 @@ export default function CalendarPage() {
           tractionData,
           undefined,
           undefined,
-          Object.keys(contentMatrix).length > 0 ? contentMatrix : undefined
+          Object.keys(contentMatrix).length > 0 ? contentMatrix : undefined,
+          selectedBuckets.length > 0 ? selectedBuckets : undefined,
+          bucketMode
        )
 
        if (res.success && res.data) {
@@ -398,8 +404,8 @@ export default function CalendarPage() {
       const res = await chatWithConcept(activeBrand, activePost, conceptChatInput)
       if (res.success && res.data) {
         if (!res.data.approved) {
-           showToast(`Pushback: ${res.data.feedback}`, 'error')
-           setConceptChatInput('')
+           showToast(`🎬 Creative Director Pushback: ${res.data.feedback}`, 'warning')
+           // DO NOT clear the input so the user can modify their prompt
            return
         }
         
@@ -728,6 +734,110 @@ export default function CalendarPage() {
 
                      {/* ── Feed Aesthetic & Tenure References ── */}
                      <div className="space-y-4 pt-4 border-t border-[var(--color-border-default)]">
+
+                        {/* Content Pillar / Bucket Mix */}
+                        {strategy.contentPillars && Object.keys(strategy.contentPillars).length > 0 && (
+                          <div className="space-y-4">
+                             <div>
+                                <label className="text-[10px] font-black text-[var(--color-text-tertiary)] uppercase tracking-widest block mb-1 flex items-center gap-2">
+                                  Content Bucket Mix
+                                  <span className="px-2 py-0.5 rounded-full text-[8px] bg-purple-500/10 text-purple-400 border border-purple-500/20">Brand OS Data</span>
+                                </label>
+                                <p className="text-[9px] text-[var(--color-text-muted)]">Control how AI distributes posts across your strategic content buckets.</p>
+                             </div>
+
+                             <div className="flex gap-2">
+                               <button 
+                                 onClick={() => setBucketMode('ai')} 
+                                 className={`flex-1 p-3 rounded-xl border-2 text-left transition-all ${bucketMode === 'ai' ? 'border-purple-500 bg-purple-500/5' : 'border-[var(--color-border-default)] hover:border-purple-500/50'}`}
+                               >
+                                 <h4 className={`text-xs font-black uppercase tracking-widest mb-1 ${bucketMode === 'ai' ? 'text-purple-400' : 'text-[var(--color-text-muted)]'}`}>AI-Guided</h4>
+                                 <p className="text-[10px] text-[var(--color-text-tertiary)]">AI mixes buckets naturally within min/max limits.</p>
+                               </button>
+                               <button 
+                                 onClick={() => setBucketMode('manual')} 
+                                 className={`flex-1 p-3 rounded-xl border-2 text-left transition-all ${bucketMode === 'manual' ? 'border-sky-500 bg-sky-500/5' : 'border-[var(--color-border-default)] hover:border-sky-500/50'}`}
+                               >
+                                 <h4 className={`text-xs font-black uppercase tracking-widest mb-1 ${bucketMode === 'manual' ? 'text-sky-400' : 'text-[var(--color-text-muted)]'}`}>Strict Manual</h4>
+                                 <p className="text-[10px] text-[var(--color-text-tertiary)]">Force exact post counts per bucket.</p>
+                               </button>
+                             </div>
+
+                             <div className="space-y-3 bg-[var(--color-bg-surface)] p-4 rounded-xl border border-[var(--color-border-subtle)]">
+                               {(() => {
+                                 // Initialize selection state based on selected platforms if empty
+                                 const activePlatforms = [...new Set(brandInfo?.platforms || [])]
+                                 useEffect(() => {
+                                    if (selectedBuckets.length === 0 && strategy.contentPillars) {
+                                      const initial: BucketSelection[] = []
+                                      activePlatforms.forEach(plat => {
+                                        const platKey = Object.keys(strategy.contentPillars!).find(k => plat.includes(k) || k.includes(plat))
+                                        if (platKey && strategy.contentPillars![platKey]) {
+                                          strategy.contentPillars![platKey].forEach(pillar => {
+                                            pillar.buckets.forEach(bucket => {
+                                              initial.push({
+                                                bucketId: bucket.id,
+                                                bucketName: bucket.name,
+                                                pillarName: pillar.name,
+                                                min: bucket.suggestedMinPerMonth,
+                                                max: bucket.suggestedMaxPerMonth,
+                                                count: Math.ceil((bucket.suggestedMinPerMonth + bucket.suggestedMaxPerMonth) / 2)
+                                              })
+                                            })
+                                          })
+                                        }
+                                      })
+                                      setSelectedBuckets(initial)
+                                    }
+                                 }, [activePlatforms, strategy.contentPillars])
+
+                                 return selectedBuckets.length > 0 ? (
+                                   <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
+                                     {selectedBuckets.map((b, idx) => (
+                                       <div key={idx} className="flex items-center justify-between py-2 border-b border-[var(--color-border-subtle)] last:border-0">
+                                         <div>
+                                           <div className="flex items-center gap-1.5 mb-0.5">
+                                             <span className="text-[8px] font-bold px-1.5 py-0.5 bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] rounded uppercase tracking-widest">{b.pillarName}</span>
+                                           </div>
+                                           <p className="text-xs font-bold text-[var(--color-text-secondary)]">{b.bucketName}</p>
+                                         </div>
+                                         <div className="flex items-center gap-3">
+                                           {bucketMode === 'ai' ? (
+                                             <div className="flex items-center gap-1.5 px-3 py-1 bg-[var(--color-bg-hover)] rounded-lg">
+                                               <span className="text-[10px] font-black text-emerald-400">{b.min}</span>
+                                               <span className="text-[10px] text-[var(--color-text-muted)]">-</span>
+                                               <span className="text-[10px] font-black text-amber-400">{b.max}</span>
+                                               <span className="text-[8px] uppercase tracking-widest text-[var(--color-text-tertiary)] ml-1">posts/mo</span>
+                                             </div>
+                                           ) : (
+                                             <div className="flex items-center gap-2">
+                                               <button onClick={() => {
+                                                 const upd = [...selectedBuckets]
+                                                 upd[idx].count = Math.max(0, (upd[idx].count || 0) - 1)
+                                                 setSelectedBuckets(upd)
+                                               }} className="w-6 h-6 rounded-md bg-[var(--color-bg-hover)] hover:bg-[var(--color-border-default)] flex items-center justify-center text-[var(--color-text-muted)]">-</button>
+                                               <span className="w-6 text-center text-xs font-black text-[var(--color-text-primary)]">{b.count || 0}</span>
+                                               <button onClick={() => {
+                                                 const upd = [...selectedBuckets]
+                                                 upd[idx].count = (upd[idx].count || 0) + 1
+                                                 setSelectedBuckets(upd)
+                                               }} className="w-6 h-6 rounded-md bg-[var(--color-bg-hover)] hover:bg-[var(--color-border-default)] flex items-center justify-center text-[var(--color-text-muted)]">+</button>
+                                             </div>
+                                           )}
+                                         </div>
+                                       </div>
+                                     ))}
+                                   </div>
+                                 ) : (
+                                   <div className="py-4 text-center">
+                                     <p className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-widest">Loading buckets from Brand OS...</p>
+                                   </div>
+                                 )
+                               })()}
+                             </div>
+                          </div>
+                        )}
+
                         <div>
                            <label className="text-[10px] font-black text-[var(--color-text-tertiary)] uppercase tracking-widest block mb-1">Feed Aesthetic</label>
                            <p className="text-[9px] text-[var(--color-text-muted)]">Select the visual theme for this calendar tenure. This will guide AI image generation style.</p>
@@ -1090,9 +1200,16 @@ export default function CalendarPage() {
                                     </div>
                                     {hasDraft && <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)] shadow-[0_0_8px_var(--color-success)]" />}
                                 </div>
-                               <p className={`text-[11px] font-bold leading-snug line-clamp-2 ${hasDraft ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-primary)]'}`}>
-                                  {post.topic}
-                               </p>
+                               <div className="mt-1">
+                                 {post.bucketName && (
+                                   <div className="inline-block mb-1 px-1.5 py-0.5 bg-[var(--color-bg-base)] border border-[var(--color-border-subtle)] rounded text-[8px] font-bold text-[var(--color-text-muted)] truncate max-w-full">
+                                     {post.bucketName}
+                                   </div>
+                                 )}
+                                 <p className={`text-[11px] font-bold leading-snug line-clamp-2 ${hasDraft ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-primary)]'}`}>
+                                    {post.topic}
+                                 </p>
+                               </div>
                                </div>
                             )
                          })}
@@ -1472,7 +1589,11 @@ export default function CalendarPage() {
                           const otherFields = spec.draftFields.filter(f => !onImageKeys.includes(f.key) && !captionKeys.includes(f.key) && !metaKeys.includes(f.key))
                           const directionFields = spec.draftFields.filter(f => metaKeys.includes(f.key))
                           
-                          const stripEmDash = (text: string) => text.replace(/\u2014/g, ' - ').replace(/---/g, ' - ').replace(/--/g, ' - ')
+                          const stripEmDash = (text: any): any => {
+                             if (typeof text === 'string') return text.replace(/\u2014/g, ' - ').replace(/---/g, ' - ').replace(/--/g, ' - ')
+                             if (Array.isArray(text)) return text.map(stripEmDash)
+                             return text
+                          }
                           
                           return (
                              <>

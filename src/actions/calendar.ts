@@ -2,10 +2,19 @@
 
 
 import { askExpertAgent } from '@/lib/openai-agent'
-import { BrandInfo, Strategy } from '@/stores/brand'
+import { BrandInfo, Strategy, ContentBucket } from '@/stores/brand'
 import { TopicalEvent } from './topicals'
 import { getAllKnowledgeSummary } from '@/lib/knowledge-loader'
 import { buildProductContext } from '@/lib/product-context'
+
+export interface BucketSelection {
+  bucketId: string
+  bucketName: string
+  pillarName: string
+  count?: number // exact override, or leave empty for AI to decide within min/max
+  min: number
+  max: number
+}
 
 export async function generateContentCalendar(
   brandInfo: BrandInfo, 
@@ -18,7 +27,9 @@ export async function generateContentCalendar(
   liveMarketTraction: string = "",
   platformScope?: string[],
   formatScope?: Record<string, string[]>,
-  contentMatrix?: Record<string, Record<string, Record<string, number>>>
+  contentMatrix?: Record<string, Record<string, Record<string, number>>>,
+  selectedBuckets?: BucketSelection[],
+  bucketMode?: 'ai' | 'manual'
 ) {
   if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('YOUR_KEY_HERE')) {
     throw new Error("Missing valid OPENAI_API_KEY in environment variables.")
@@ -84,6 +95,20 @@ export async function generateContentCalendar(
     ===================================
     ` : ''}
 
+    ${brandInfo.coreProducts && brandInfo.coreProducts.length > 0 ? `
+    === CORE PRODUCTS / MENU — ANTI-HALLUCINATION CONSTRAINT (MANDATORY) ===
+    The brand "${brandInfo.name}" sells ONLY these specific products/items:
+    ${brandInfo.coreProducts.map((p, i) => `  ${i+1}. ${p}`).join('\n')}
+    
+    IMPORTANT NUANCE:
+    - NOT every post needs to feature a product. Posts about culture, behind-the-scenes,
+      lifestyle, industry trends, community engagement, etc. are perfectly fine and encouraged.
+    - HOWEVER, if a post concept DOES reference a specific product or menu item,
+      it MUST be one from the list above — by its EXACT name.
+    - NEVER invent, hallucinate, or assume products that are NOT on this list.
+    ========================================================================
+    ` : ''}
+
     Content Pillars and their distribution weighting:
     ${strategy.coreNarratives}
 
@@ -137,6 +162,15 @@ export async function generateContentCalendar(
     ===============================================================================
     ` : ''}
 
+    ${selectedBuckets && selectedBuckets.length > 0 ? `
+    === CONTENT BUCKET MIX (${bucketMode === 'manual' ? 'STRICT — USER-DEFINED COUNTS' : 'AI-GUIDED — RESPECT MIN/MAX'}) ===
+    The user has defined specific content buckets for this calendar. Each post MUST be assigned to one of these buckets.
+    ${selectedBuckets.map(b => `  - [${b.pillarName}] → "${b.bucketName}" (ID: ${b.bucketId}) — ${b.count ? `EXACT: ${b.count} posts` : `Range: ${b.min}-${b.max} posts/month`}`).join('\n')}
+    
+    ${bucketMode === 'manual' ? 'You MUST match the exact post counts above. No more, no less per bucket.' : 'You have flexibility within the min/max ranges. Distribute intelligently based on strategy.'}
+    ================================================================
+    ` : ''}
+
     Output a strict JSON array under the key "posts". We need ${targetPostsStr} strategically scattered between ${startDate} and ${endDate}.
     Each post object must have:
     "id": A unique random string
@@ -144,6 +178,8 @@ export async function generateContentCalendar(
     "platform": The specific platform this post is destined for. Use "Meta (Instagram & Facebook)" for Instagram/Facebook, or name the specific platform (LinkedIn, X (Twitter), etc).
     "format": Must match the platform constraint (e.g. 'Reel', 'Carousel', 'Static', 'Story' for Meta; 'Text', 'Thread' for Linkedin/X, 'Short' for Youtube).
     "pillar": Which content pillar does this fit into (use the exact pillar name provided above)
+    ${selectedBuckets && selectedBuckets.length > 0 ? `"bucketId": The exact bucket ID from the Content Bucket Mix above that this post belongs to.
+    "bucketName": The exact bucket name this post belongs to.` : ''}
     "topic": A hyper-engaging, viral 2-3 sentence description of what the post will actually be about. Be DETAILED and SPECIFIC. Not just a hook — describe the full concept, angle, and narrative arc. (e.g. "POV: you finally found the skincare routine that clears hormonal acne. Open on a frustrated morning mirror check, then reveal the 3-step ritual. End with the 'glowing skin' payoff shot.")
     "eventContext": (Optional) If this post is related to a custom event or a detected cultural holiday/trend on that day, name the event here. Otherwise leave it blank.
     "psychTrigger": A 1-sentence analysis of which psychological lever this post pulls (Status, Nostalgia, FOMO, Belonging, Survival, Curiosity, Scarcity) and HOW it does it. Be specific to THIS post's concept.

@@ -81,6 +81,8 @@ export default function OnboardingPage() {
   const [research, setResearch] = React.useState<BrandResearch | null>(null)
   const [deepResearchId, setDeepResearchId] = React.useState<string | null>(null)
   const [researchElapsed, setResearchElapsed] = React.useState(0)
+  const timerRef = React.useRef<NodeJS.Timeout | null>(null)
+  const isResearchingRef = React.useRef<boolean>(false)
   const [clarifyingQuestions, setClarifyingQuestions] = React.useState<ClarifyingQuestion[]>([])
   const [clarifyingAnswers, setClarifyingAnswers] = React.useState<Record<string, string>>({})
   const [isLoadingQuestions, setIsLoadingQuestions] = React.useState(false)
@@ -168,10 +170,15 @@ export default function OnboardingPage() {
     if (data.discoveredGoals?.length) updateForm('primaryGoals', data.discoveredGoals.slice(0, 3))
     if (data.suggestedTone?.length) updateForm('tone', data.suggestedTone.slice(0, 3))
     if (data.suggestedPlatforms?.length) updateForm('platforms', data.suggestedPlatforms)
+    // Auto-populate core products from research (user can edit later)
+    if (data.coreProducts?.length && !(formData.coreProducts?.length)) {
+      updateForm('coreProducts', data.coreProducts)
+    }
   }
 
   const runResearch = async () => {
     setIsResearching(true)
+    isResearchingRef.current = true
     setError(null)
     setResearchElapsed(0)
 
@@ -187,19 +194,25 @@ export default function OnboardingPage() {
       if (startRes.success && startRes.interactionId) {
         setDeepResearchId(startRes.interactionId)
         // Start elapsed timer
-        const timerId = setInterval(() => setResearchElapsed(prev => prev + 1), 1000)
+        timerRef.current = setInterval(() => setResearchElapsed(prev => prev + 1), 1000)
         
         // Poll for completion
         let attempts = 0
         const maxAttempts = 60 // 60 * 10s = 10 min max
         while (attempts < maxAttempts) {
+          if (!isResearchingRef.current) {
+            if (timerRef.current) clearInterval(timerRef.current)
+            return // Component unmounted or cancelled
+          }
           await new Promise(r => setTimeout(r, 10000)) // Wait 10 seconds
           attempts++
+          
+          if (!isResearchingRef.current) return; // Check again after await
           
           const status = await pollDeepResearch(startRes.interactionId)
           
           if (status.status === 'completed' && status.report) {
-            clearInterval(timerId)
+            if (timerRef.current) clearInterval(timerRef.current)
             console.log('🔬 Deep Research complete! Synthesizing...')
             
             // Synthesize raw report into structured data using GPT-5.4
@@ -215,18 +228,19 @@ export default function OnboardingPage() {
               setError(synthRes.error || 'Failed to synthesize research')
             }
             setIsResearching(false)
+            isResearchingRef.current = false
             setDeepResearchId(null)
             return
           }
           
           if (status.status === 'failed') {
-            clearInterval(timerId)
+            if (timerRef.current) clearInterval(timerRef.current)
             console.warn('⚠️ Deep Research failed, falling back to quick research...')
             break // Fall through to quick research
           }
         }
         
-        clearInterval(timerId)
+        if (timerRef.current) clearInterval(timerRef.current)
       }
       
       // Fallback: Quick research (if Deep Research failed or wasn't available)
@@ -246,15 +260,20 @@ export default function OnboardingPage() {
       setError(e.message || 'Research failed')
     } finally {
       setIsResearching(false)
+      isResearchingRef.current = false
       setDeepResearchId(null)
     }
   }
 
   const cancelDeepResearch = async () => {
     // Cancel deep research and switch to quick
+    if (timerRef.current) clearInterval(timerRef.current)
+    isResearchingRef.current = false // Stops the polling loop
     setDeepResearchId(null)
     setResearchElapsed(0)
     setIsResearching(true)
+    
+    // Start fresh fallback
     try {
       const res = await researchBrand(
         formData.name || '', 
@@ -271,6 +290,7 @@ export default function OnboardingPage() {
       setError(e.message || 'Quick research failed')
     } finally {
       setIsResearching(false)
+      isResearchingRef.current = false
     }
   }
 
@@ -487,6 +507,54 @@ export default function OnboardingPage() {
                     placeholder={"e.g. We make premium artisan sandwiches for office-goers in Mumbai and Bangalore. Our USP is locally-sourced sourdough bread..."}
                     rows={6} className={textareaClass} 
                   />
+                </div>
+
+                {/* Core Products / Menu Items */}
+                <div className="space-y-3 animate-in fade-in duration-300">
+                  <label className="text-sm font-bold uppercase tracking-wider text-slate-500">Core Products / Menu Items</label>
+                  <p className="text-xs text-blue-600/80 mb-2">List your actual products, menu items, or service names. The AI will ONLY reference these — never invent fake offerings. (AI will auto-suggest from research if left empty)</p>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {(formData.coreProducts || []).map((product, i) => (
+                      <span key={i} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-medium">
+                        {product}
+                        <button type="button" onClick={() => {
+                          const updated = [...(formData.coreProducts || [])]
+                          updated.splice(i, 1)
+                          updateForm('coreProducts', updated)
+                        }} className="text-emerald-400 hover:text-red-500 transition-colors">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <input 
+                      id="coreProductInput"
+                      placeholder="e.g. Cheese Chilly Sandwich, Bombay Masala Toast..."
+                      className={inputClass + ' flex-1'}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ',') {
+                          e.preventDefault()
+                          const input = e.currentTarget
+                          const val = input.value.trim().replace(/,$/, '')
+                          if (val) {
+                            updateForm('coreProducts', [...(formData.coreProducts || []), val])
+                            input.value = ''
+                          }
+                        }
+                      }}
+                    />
+                    <button type="button" onClick={() => {
+                      const input = document.getElementById('coreProductInput') as HTMLInputElement
+                      const val = input?.value?.trim()
+                      if (val) {
+                        updateForm('coreProducts', [...(formData.coreProducts || []), val])
+                        input.value = ''
+                      }
+                    }} className="px-4 py-2 rounded-xl bg-emerald-500 text-white font-bold text-sm hover:bg-emerald-600 transition-all flex items-center gap-1.5">
+                      <Plus className="w-4 h-4" /> Add
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

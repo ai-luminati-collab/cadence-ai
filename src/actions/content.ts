@@ -67,6 +67,17 @@ export async function generatePostContent(
     ===================================================================
     ` : ''}
 
+    ${brandInfo.coreProducts && brandInfo.coreProducts.length > 0 ? `
+    === CORE PRODUCTS / MENU — ANTI-HALLUCINATION CONSTRAINT (MANDATORY) ===
+    The brand "${brandInfo.name}" sells ONLY these specific products/items:
+    ${brandInfo.coreProducts.map((p, i) => `  ${i+1}. ${p}`).join('\n')}
+    
+    IMPORTANT: Not every post needs to mention a product. But IF this post references
+    a specific product or menu item, use ONLY items from this list — by their EXACT name.
+    NEVER invent fake products, menu items, or features.
+    ========================================================================
+    ` : ''}
+
     === PLATFORM-NATIVE GENERATION RULES ===
     You are generating content specifically for: ${spec.displayName}
     ${platformInstructions}

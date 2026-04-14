@@ -5,7 +5,7 @@ import {
   Target, MessageSquare, Zap, CheckCircle2, RefreshCw, Swords, Brain, History, 
   ChevronDown, ChevronUp, Sparkles, BarChart3, Shield, Palette, Type, PenTool, Globe, 
   Infinity, Briefcase, Music, Play, Camera, Search, Activity, Users, MessageCircle, X, Check, Download,
-  Paperclip, ImagePlus, FolderOpen, Edit3, Upload, Trash2, FileText, Image as ImageIcon
+  Paperclip, ImagePlus, FolderOpen, Edit3, Upload, Trash2, FileText, Image as ImageIcon, Plus
 } from 'lucide-react'
 import { useBrandStore, type BrandAsset } from '@/stores/brand'
 import { useRouter } from 'next/navigation'
@@ -249,6 +249,7 @@ export default function StrategyPage() {
   const [isExporting, setIsExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isAnalyzingRefs, setIsAnalyzingRefs] = useState(false)
+  const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null)
 
   const activeBrand = activeBrandId ? brands[activeBrandId] : null
   const strategy = activeBrand?.strategy
@@ -631,7 +632,11 @@ export default function StrategyPage() {
         {strategy.platformPlaybooks && Object.keys(strategy.platformPlaybooks).length > 0 ? (
            <div className="grid grid-cols-1 gap-6">
               {Object.entries(strategy.platformPlaybooks).map(([platform, playbook]) => (
-                <div key={platform} className="bg-[var(--color-bg-base)] border-2 border-[var(--color-border-default)] rounded-3xl overflow-hidden hover:border-[var(--color-accent-400)] transition-colors shadow-sm">
+                <button 
+                  key={platform} 
+                  onClick={() => setSelectedPlatform(platform)}
+                  className="bg-[var(--color-bg-base)] border-2 border-[var(--color-border-default)] rounded-3xl overflow-hidden hover:border-[var(--color-accent-400)] transition-all shadow-sm text-left cursor-pointer group hover:shadow-lg"
+                >
                    <div className="bg-[var(--color-bg-surface)] border-b border-[var(--color-border-subtle)] px-6 py-4 flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-[var(--color-accent-700)] border border-[var(--color-accent-600)] flex items-center justify-center">
                          {(() => {
@@ -640,7 +645,13 @@ export default function StrategyPage() {
                             return <Icon className={`w-4 h-4 ${config.color}`} />;
                          })()}
                       </div>
-                      <h3 className="text-lg font-black text-[var(--color-text-primary)] uppercase tracking-tight">{platform}</h3>
+                      <h3 className="text-lg font-black text-[var(--color-text-primary)] uppercase tracking-tight flex-1">{platform}</h3>
+                      {strategy.contentPillars?.[platform] && (
+                        <span className="text-[10px] font-black text-[var(--color-accent-400)] bg-[var(--color-accent-900)]/20 px-3 py-1 rounded-full uppercase tracking-widest">
+                          {strategy.contentPillars[platform].length} Pillars · {strategy.contentPillars[platform].reduce((s, p) => s + p.buckets.length, 0)} Buckets
+                        </span>
+                      )}
+                      <ChevronDown className="w-4 h-4 text-[var(--color-text-muted)] group-hover:text-[var(--color-accent-400)] transition-colors" />
                    </div>
                    <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
@@ -660,7 +671,7 @@ export default function StrategyPage() {
                          <p className="text-sm font-bold text-[var(--color-text-secondary)] leading-snug">{playbook.cadence}</p>
                       </div>
                    </div>
-                </div>
+                </button>
               ))}
            </div>
         ) : (
@@ -670,6 +681,111 @@ export default function StrategyPage() {
              {strategy.measurementPlan && <StrategyCard title="Social KPIs & Measurement" icon={BarChart3} iconColor="bg-emerald-50 text-emerald-500" content={strategy.measurementPlan} />}
            </div>
         )}
+
+        {/* ═══ PLATFORM PILLAR/BUCKET POPUP MODAL ═══ */}
+        {selectedPlatform && strategy.platformPlaybooks?.[selectedPlatform] && (() => {
+          const playbook = strategy.platformPlaybooks[selectedPlatform]
+          const pillars = strategy.contentPillars?.[selectedPlatform] || []
+          const totalBuckets = pillars.reduce((s, p) => s + p.buckets.length, 0)
+          const totalMinPosts = pillars.reduce((s, p) => s + p.buckets.reduce((bs, b) => bs + b.suggestedMinPerMonth, 0), 0)
+          const totalMaxPosts = pillars.reduce((s, p) => s + p.buckets.reduce((bs, b) => bs + b.suggestedMaxPerMonth, 0), 0)
+          const platConfig = PLATFORM_ICONS[selectedPlatform] || PLATFORM_ICONS.default
+          const PlatIcon = platConfig.icon
+
+          return (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center backdrop-blur-md bg-black/50 p-4" onClick={() => setSelectedPlatform(null)}>
+              <div 
+                className="w-[900px] max-h-[90vh] bg-[var(--color-bg-base)] border border-[var(--color-border-default)] rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.5)] relative flex flex-col animate-in zoom-in-95 duration-300"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between px-8 py-6 border-b border-[var(--color-border-default)] flex-shrink-0">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-[var(--color-accent-700)] border border-[var(--color-accent-500)]/30 flex items-center justify-center shadow-[0_0_20px_var(--color-accent-glow)]">
+                      <PlatIcon className={`w-6 h-6 ${platConfig.color}`} />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-display font-bold text-[var(--color-text-primary)] tracking-tight">{selectedPlatform}</h2>
+                      <p className="text-sm text-[var(--color-text-secondary)] mt-0.5">Content Pillars & Buckets</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-4 text-[10px] font-black uppercase tracking-widest">
+                      <span className="text-[var(--color-text-muted)]">{pillars.length} Pillars</span>
+                      <span className="text-[var(--color-accent-400)]">{totalBuckets} Buckets</span>
+                      <span className="text-emerald-400">{totalMinPosts}-{totalMaxPosts} posts/mo</span>
+                    </div>
+                    <button onClick={() => setSelectedPlatform(null)} className="p-2 rounded-xl hover:bg-[var(--color-bg-hover)] text-[var(--color-text-tertiary)] hover:text-white transition-all">
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Playbook Summary */}
+                <div className="px-8 py-4 bg-[var(--color-bg-surface)] border-b border-[var(--color-border-subtle)]">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Role</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook.role}</p></div>
+                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Mechanics</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook.mechanics}</p></div>
+                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Tone</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook.toneModifier}</p></div>
+                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Cadence</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook.cadence}</p></div>
+                  </div>
+                </div>
+
+                {/* Pillars & Buckets */}
+                <div className="flex-1 overflow-y-auto px-8 py-6 space-y-5 custom-scrollbar">
+                  {pillars.length === 0 ? (
+                    <div className="text-center py-16">
+                      <Sparkles className="w-12 h-12 text-[var(--color-text-muted)] mx-auto mb-4 opacity-30" />
+                      <p className="text-sm font-bold text-[var(--color-text-tertiary)]">No content pillars generated yet.</p>
+                      <p className="text-xs text-[var(--color-text-muted)] mt-1">Re-generate your Brand OS strategy to auto-populate pillars & buckets.</p>
+                    </div>
+                  ) : (
+                    pillars.map((pillar, pIdx) => (
+                      <div key={pillar.id} className="rounded-2xl border-2 border-[var(--color-border-default)] overflow-hidden bg-[var(--color-bg-surface)]">
+                        <div className="px-5 py-4 bg-[var(--color-bg-base)] border-b border-[var(--color-border-subtle)] flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-xl bg-[var(--color-accent-600)] text-white flex items-center justify-center text-xs font-black">{pIdx + 1}</div>
+                          <div className="flex-1">
+                            <input value={pillar.name} onChange={(e) => { const u = [...pillars]; u[pIdx] = { ...u[pIdx], name: e.target.value }; setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: u } }) }} className="text-sm font-black text-[var(--color-text-primary)] bg-transparent outline-none uppercase tracking-wider w-full" />
+                            <input value={pillar.description} onChange={(e) => { const u = [...pillars]; u[pIdx] = { ...u[pIdx], description: e.target.value }; setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: u } }) }} className="text-[10px] text-[var(--color-text-muted)] bg-transparent outline-none w-full mt-0.5" />
+                          </div>
+                          <span className="text-[10px] font-bold text-[var(--color-text-muted)]">{pillar.buckets.length} buckets</span>
+                          <button onClick={() => { setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: pillars.filter((_, i) => i !== pIdx) } }) }} className="p-1.5 rounded-lg text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/10 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
+                        </div>
+                        <div className="divide-y divide-[var(--color-border-subtle)]">
+                          {pillar.buckets.map((bucket, bIdx) => (
+                            <div key={bucket.id} className="px-5 py-3 flex items-center gap-4 hover:bg-[var(--color-bg-hover)] transition-colors group">
+                              <div className="w-5 h-5 rounded-md bg-[var(--color-bg-hover)] flex items-center justify-center text-[9px] font-black text-[var(--color-text-muted)]">{pIdx + 1}.{bIdx + 1}</div>
+                              <div className="flex-1 min-w-0">
+                                <input value={bucket.name} onChange={(e) => { const u = [...pillars]; const nb = [...u[pIdx].buckets]; nb[bIdx] = { ...nb[bIdx], name: e.target.value }; u[pIdx] = { ...u[pIdx], buckets: nb }; setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: u } }) }} className="text-xs font-bold text-[var(--color-text-primary)] bg-transparent outline-none w-full" />
+                                <input value={bucket.description} onChange={(e) => { const u = [...pillars]; const nb = [...u[pIdx].buckets]; nb[bIdx] = { ...nb[bIdx], description: e.target.value }; u[pIdx] = { ...u[pIdx], buckets: nb }; setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: u } }) }} className="text-[10px] text-[var(--color-text-muted)] bg-transparent outline-none w-full" />
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <div className="flex flex-col items-center">
+                                  <span className="text-[8px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Min</span>
+                                  <input type="number" min={0} max={10} value={bucket.suggestedMinPerMonth} onChange={(e) => { const u = [...pillars]; const nb = [...u[pIdx].buckets]; nb[bIdx] = { ...nb[bIdx], suggestedMinPerMonth: parseInt(e.target.value) || 0 }; u[pIdx] = { ...u[pIdx], buckets: nb }; setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: u } }) }} className="w-10 text-center text-xs font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-lg py-1 outline-none focus:border-emerald-400" />
+                                </div>
+                                <span className="text-[var(--color-text-muted)] text-xs">-</span>
+                                <div className="flex flex-col items-center">
+                                  <span className="text-[8px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Max</span>
+                                  <input type="number" min={0} max={20} value={bucket.suggestedMaxPerMonth} onChange={(e) => { const u = [...pillars]; const nb = [...u[pIdx].buckets]; nb[bIdx] = { ...nb[bIdx], suggestedMaxPerMonth: parseInt(e.target.value) || 0 }; u[pIdx] = { ...u[pIdx], buckets: nb }; setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: u } }) }} className="w-10 text-center text-xs font-black bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-lg py-1 outline-none focus:border-amber-400" />
+                                </div>
+                                <span className="text-[9px] text-[var(--color-text-muted)] font-bold">/mo</span>
+                              </div>
+                              {bucket.formats && (<div className="flex gap-1 shrink-0">{bucket.formats.map(f => (<span key={f} className="text-[8px] font-bold text-[var(--color-text-muted)] bg-[var(--color-bg-hover)] px-1.5 py-0.5 rounded">{f}</span>))}</div>)}
+                              <button onClick={() => { const u = [...pillars]; u[pIdx] = { ...u[pIdx], buckets: u[pIdx].buckets.filter((_, i) => i !== bIdx) }; setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: u } }) }} className="p-1 rounded text-[var(--color-text-muted)] hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-3 h-3" /></button>
+                            </div>
+                          ))}
+                          <button onClick={() => { const u = [...pillars]; u[pIdx] = { ...u[pIdx], buckets: [...u[pIdx].buckets, { id: `bucket-${Date.now()}`, name: 'New Bucket', description: 'Describe this content bucket...', pillarId: pillar.id, suggestedMinPerMonth: 1, suggestedMaxPerMonth: 3 }] }; setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: u } }) }} className="w-full px-5 py-2.5 text-[10px] font-bold text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/5 transition-all flex items-center gap-1.5 justify-center"><Plus className="w-3 h-3" /> Add Bucket</button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                  <button onClick={() => { setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: [...pillars, { id: `pillar-${Date.now()}`, name: 'New Pillar', description: 'Describe this content pillar...', buckets: [] }] } }) }} className="w-full py-4 rounded-2xl border-2 border-dashed border-[var(--color-border-default)] hover:border-[var(--color-accent-500)] text-sm font-bold text-[var(--color-text-muted)] hover:text-[var(--color-accent-400)] transition-all flex items-center justify-center gap-2"><Plus className="w-4 h-4" /> Add Content Pillar</button>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
       </div>
 
       {/* ═══ SECTION 6: Brand Media Library ═══ */}

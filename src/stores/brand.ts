@@ -24,7 +24,28 @@ export interface Strategy {
   pillars?: { title: string; val: string }[]
   competitors?: string[]
   
+  // Content Pillars & Buckets (per-platform)
+  contentPillars?: Record<string, ContentPillar[]> // keyed by platform name
+  
   lastRefreshed?: string // ISO string
+}
+
+// ── Content Pillars & Buckets ──
+export interface ContentPillar {
+  id: string
+  name: string           // e.g. "Product Spotlight"
+  description: string    // e.g. "Showcasing our core products in aspirational contexts"
+  buckets: ContentBucket[]
+}
+
+export interface ContentBucket {
+  id: string
+  name: string           // e.g. "Hero Product Close-Ups"
+  description: string    // e.g. "Macro shots of signature sandwiches with ingredient callouts"
+  pillarId: string       // links back to ContentPillar.id
+  suggestedMinPerMonth: number  // e.g. 2
+  suggestedMaxPerMonth: number  // e.g. 4
+  formats?: string[]     // e.g. ["Static", "Carousel"] — preferred formats for this bucket
 }
 
 export interface PlatformPlaybook {
@@ -117,6 +138,7 @@ export interface BrandInfo {
   pendingInsights?: string[]
   
   // Product/Service Intelligence
+  coreProducts?: string[] // Anti-hallucination anchor: exact product/menu names the AI MUST use
   brandType?: 'product' | 'service' | 'hybrid'
   productCatalog?: ProductEntry[]
   serviceOfferings?: ServiceEntry[]
@@ -172,6 +194,10 @@ export interface CalendarPost {
   pillar: string
   topic: string
   eventContext?: string // e.g., "Diwali Special", "Product Launch"
+  
+  // Content Bucket Tracking
+  bucketId?: string     // links to ContentBucket.id
+  bucketName?: string   // e.g. "Hero Product Close-Ups"
   
   // Per-Post Marketing Intelligence (AI-generated)
   psychTrigger?: string // e.g. "Attacks the Nostalgia lever by evoking childhood kitchen memories"

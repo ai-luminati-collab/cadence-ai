@@ -65,20 +65,6 @@ const PRODUCT_TOUR_SLIDES = [
   },
 ]
 
-const MARKETING_QUOTES = [
-  { quote: "People don't buy what you do; they buy why you do it.", author: "Simon Sinek" },
-  { quote: "Content is fire. Social media is gasoline.", author: "Jay Baer" },
-  { quote: "The best marketing doesn't feel like marketing.", author: "Tom Fishburne" },
-  { quote: "Marketing is no longer about the stuff that you make, but the stories you tell.", author: "Seth Godin" },
-  { quote: "Your brand is what other people say about you when you're not in the room.", author: "Jeff Bezos" },
-  { quote: "Good content isn't about good storytelling. It's about telling a true story well.", author: "Ann Handley" },
-  { quote: "In a world full of noise, be a signal.", author: "Unknown" },
-  { quote: "Culture eats strategy for breakfast.", author: "Peter Drucker" },
-  { quote: "The aim of marketing is to know and understand the customer so well the product sells itself.", author: "Peter Drucker" },
-  { quote: "Stop interrupting what people are interested in, and be what people are interested in.", author: "Craig Davis" },
-  { quote: "If your stories are all about your products and services, that's not storytelling. It's a brochure.", author: "Jay Baer" },
-  { quote: "Don't find customers for your products, find products for your customers.", author: "Seth Godin" },
-]
 
 // ─── SNAKE GAME ──────────────────────────────────────
 const GRID = 20
@@ -249,23 +235,15 @@ interface ResearchWaitingProps {
 
 export function ResearchWaiting({ brandName, elapsedSeconds, onCancel }: ResearchWaitingProps) {
   // Randomly select one activity on mount
-  const [activity] = React.useState<'tour' | 'game' | 'quotes'>(() => {
-    const activities = ['tour', 'game', 'quotes'] as const
+  const [activity] = React.useState<'tour' | 'game'>(() => {
+    const activities = ['tour', 'game'] as const
     return activities[Math.floor(Math.random() * activities.length)]
   })
   const [tourSlide, setTourSlide] = React.useState(0)
-  const [quoteIndex, setQuoteIndex] = React.useState(0)
 
   // Auto-rotate progress message
   const msgIndex = Math.min(Math.floor(elapsedSeconds / 30), PROGRESS_MESSAGES.length - 1)
   const currentMsg = PROGRESS_MESSAGES[msgIndex]
-
-  // Auto-rotate quotes
-  React.useEffect(() => {
-    const id = setInterval(() => setQuoteIndex(i => (i + 1) % MARKETING_QUOTES.length), 8000)
-    return () => clearInterval(id)
-  }, [])
-
   const progressPercent = Math.min((elapsedSeconds / 300) * 100, 95) // Cap at 95% until done
   const minutes = Math.floor(elapsedSeconds / 60)
   const seconds = elapsedSeconds % 60
@@ -305,7 +283,6 @@ export function ResearchWaiting({ brandName, elapsedSeconds, onCancel }: Researc
         <div className="absolute top-4 right-4 flex items-center gap-1.5 px-2 py-1 rounded-md bg-[var(--color-bg-base)] border border-[var(--color-border-subtle)] opacity-50">
            {activity === 'tour' && <><Sparkles className="w-3 h-3 text-[var(--color-accent-400)]" /><span className="text-[10px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wider">Product Tour</span></>}
            {activity === 'game' && <><Gamepad2 className="w-3 h-3 text-[var(--color-accent-400)]" /><span className="text-[10px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wider">Brain Break</span></>}
-           {activity === 'quotes' && <><BookOpen className="w-3 h-3 text-[var(--color-accent-400)]" /><span className="text-[10px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wider">Wisdom</span></>}
         </div>
 
         {activity === 'tour' && (
@@ -339,24 +316,6 @@ export function ResearchWaiting({ brandName, elapsedSeconds, onCancel }: Researc
         )}
 
         {activity === 'game' && <SnakeGame />}
-
-        {activity === 'quotes' && (
-          <div className="w-full text-center space-y-6 animate-in fade-in duration-500">
-            <div className="text-4xl opacity-20">❝</div>
-            <blockquote className="text-lg font-display text-[var(--color-text-primary)] leading-relaxed italic max-w-md mx-auto transition-all duration-500">
-              {MARKETING_QUOTES[quoteIndex].quote}
-            </blockquote>
-            <p className="text-sm text-[var(--color-accent-400)] font-medium">
-              — {MARKETING_QUOTES[quoteIndex].author}
-            </p>
-            <div className="flex justify-center gap-1.5 pt-2">
-              {MARKETING_QUOTES.map((_, i) => (
-                <button key={i} onClick={() => setQuoteIndex(i)}
-                  className={`w-1.5 h-1.5 rounded-full transition-all ${i === quoteIndex ? 'bg-[var(--color-accent-400)]' : 'bg-[var(--color-border-subtle)]'}`} />
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Skip option */}

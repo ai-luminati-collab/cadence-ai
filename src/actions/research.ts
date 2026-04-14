@@ -23,6 +23,7 @@ export interface BrandResearch {
   psychographicTriggers: string
   industryContext: string
   toneSamples: ToneSample[]
+  coreProducts?: string[] // Exact product/menu/service names discovered from research
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -95,6 +96,8 @@ Your job is to synthesize this massive research into a structured brand intellig
 
 CRITICAL: For the toneSamples array, write 8 sample social media captions in DIFFERENT tones, each specifically about this brand "${brandName}". Each caption should feel like a real Instagram/LinkedIn post. Use REAL insight from the research to make them hyper-specific.
 
+CRITICAL: For the coreProducts array, extract the EXACT product names, menu items, service packages, or flagship offerings that this brand ACTUALLY sells. These must be real names found in the research — do NOT invent products. If the brand is a restaurant, list their actual menu categories or signature dishes. If it's a SaaS, list their actual product tiers or features.
+
 Return STRICTLY as JSON (no markdown wrappers):
 {
   "summary": "A 3-5 sentence executive summary synthesizing the brand's position, market context, and opportunity. Be specific with numbers and facts from the research.",
@@ -107,6 +110,7 @@ Return STRICTLY as JSON (no markdown wrappers):
   "uspHypothesis": "A 2-3 sentence hypothesis of what makes this brand unique — grounded in REAL differentiators found in the research.",
   "psychographicTriggers": "A 60-100 word analysis of the psychological triggers that drive their audience — based on actual customer behavior/sentiment from the research.",
   "industryContext": "A 60-100 word snapshot of current industry trends with specific data points from the research.",
+  "coreProducts": ["Exact Product/Menu Item 1", "Exact Product 2", "Exact Product 3"],
   "toneSamples": [
     { "tone": "Playful", "caption": "A hyper-specific caption using real brand details.", "description": "Light, witty, and approachable." },
     { "tone": "Serious", "caption": "A caption grounded in real brand facts.", "description": "Professional, authoritative." },
@@ -125,7 +129,12 @@ Make EVERY field specific to "${brandName}" — reference their actual products,
     const res = await askExpertAgent(prompt)
     if (!res.success) throw new Error("Synthesis failed")
     
-    let resultText = res.data.replace(/```json/g, '').replace(/```/g, '').trim()
+    let resultText = res.data.replace(/```json/ig, '').replace(/```/g, '').trim()
+    const firstBrace = resultText.indexOf('{');
+    const lastBrace = resultText.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1) {
+      resultText = resultText.substring(firstBrace, lastBrace + 1);
+    }
     return { success: true, data: JSON.parse(resultText) }
   } catch (error: any) {
     console.error("Research synthesis failed:", error)
@@ -176,6 +185,8 @@ If neither is provided, use your deep knowledge of the industry to make intellig
 
 CRITICAL: For the toneSamples array, write 8 sample social media captions in DIFFERENT tones, each specifically about this brand "${name}". Each caption should feel like a real Instagram/LinkedIn post. The user will pick the style that resonates.
 
+CRITICAL: For the coreProducts array, extract the EXACT product names, menu items, service packages, or flagship offerings that this brand ACTUALLY sells. Use the brand name, website data, and description to determine real offerings. Do NOT invent products.
+
 Return STRICTLY as JSON (no markdown wrappers):
 {
   "summary": "A 2-3 sentence executive summary of what this brand is and its market position.",
@@ -188,6 +199,7 @@ Return STRICTLY as JSON (no markdown wrappers):
   "uspHypothesis": "A 1-2 sentence hypothesis of what makes this brand unique based on available information.",
   "psychographicTriggers": "A 40-60 word analysis of the psychological triggers (status, FOMO, belonging, aspiration, etc.) that would resonate with their audience.",
   "industryContext": "A 30-50 word snapshot of current trends and opportunities in their specific industry.",
+  "coreProducts": ["Exact real product/menu item 1", "Product 2", "Product 3"],
   "toneSamples": [
     { "tone": "Playful", "caption": "A 1-2 sentence social media caption in a playful, fun tone for this brand.", "description": "Light, witty, and approachable. Uses humor and personality." },
     { "tone": "Serious", "caption": "A 1-2 sentence social media caption in a serious, authoritative tone.", "description": "Professional, no-nonsense. Builds trust through gravitas." },
@@ -207,7 +219,12 @@ Be specific, not generic. Output must be 100% valid JSON.`
     const res = await askExpertAgent(prompt, true) // skipReview for speed
     if (!res.success) throw new Error("Research agent failed.")
     
-    let resultText = res.data.replace(/```json/g, '').replace(/```/g, '').trim()
+    let resultText = res.data.replace(/```json/ig, '').replace(/```/g, '').trim()
+    const firstBrace = resultText.indexOf('{');
+    const lastBrace = resultText.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1) {
+      resultText = resultText.substring(firstBrace, lastBrace + 1);
+    }
     return { success: true, data: JSON.parse(resultText) }
   } catch (error: any) {
     console.error("Brand Research Failed:", error)

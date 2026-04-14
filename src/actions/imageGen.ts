@@ -478,6 +478,17 @@ These rules are derived from the brand's reference images and are NON-NEGOTIABLE
 - Text should be bold and immediate. People view stories for 5 seconds maximum.`,
   }[type]
 
+  // ── Core Products Anti-Hallucination ──
+  let productBlock = ''
+  if (brandInfo.coreProducts && brandInfo.coreProducts.length > 0) {
+    productBlock = `\n═══ CORE PRODUCTS — ANTI-HALLUCINATION (STRICT) ═══
+The brand "${brandInfo.name}" sells ONLY these items: ${brandInfo.coreProducts.join(', ')}.
+If this visual features a product, it MUST be one of these items.
+NEVER depict wraps, burgers, pizzas, or any item NOT on this list.
+If the concept references "${params.concept}" and it mentions a product, cross-check against this list.
+══════════════════════════════════════════════════════`
+  }
+
   // ── Assemble Final Prompt ──
   return `You are a world-class creative director at a premium design agency. Create ${formatSpec} for the brand "${brandInfo.name}" (${brandInfo.industry} industry).
 
@@ -487,6 +498,7 @@ Industry: ${brandInfo.industry}
 Brand Personality: ${params.persona}
 Content Concept: ${params.concept}
 Content Pillar: ${params.pillar}
+${productBlock}
 
 ═══ DESIGN SYSTEM ═══
 ${colorBlock}
@@ -513,5 +525,6 @@ ${layoutGuidance}
 6. NO EM DASHES - Never render em dashes, en dashes, or long dashes in any text.
 7. NO WATERMARKS - No watermarks, no "created by AI" labels, no stock photo ID overlays.
 8. NO BORDERS OR FRAMES - The design should be full-bleed, edge to edge.
-9. CAMERA-READY - This image should be publishable without any post-production.`
+9. CAMERA-READY - This image should be publishable without any post-production.
+10. REFERENCE IMAGE FIDELITY - If reference images are provided, they are the PRIMARY source of truth for the product's visual appearance. Match the product shape, color, texture, and plating/presentation EXACTLY. Do not reimagine or reinvent the product.`
 }

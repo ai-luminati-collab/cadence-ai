@@ -53,13 +53,13 @@ ${knowledgeContext}
 
   try {
      // ═══════════════════════════════════════════════
-     // STAGE 1: WORKER (gpt-5.4-mini) — Fast Draft
+     // STAGE 1: WORKER (gpt-4o-mini) — Fast Draft
      // ═══════════════════════════════════════════════
-     console.log("⚡ Stage 1: Worker drafting with gpt-5.4-mini...")
+     console.log("⚡ Stage 1: Worker drafting with gpt-4o-mini...")
      const startWorker = Date.now()
 
      const workerResponse = await openai.chat.completions.create({
-        model: "gpt-5.4-mini",
+        model: "gpt-4o-mini",
         temperature: 0.7,
         messages: [
            { role: "system", content: systemInstructions },
@@ -82,14 +82,13 @@ ${knowledgeContext}
      }
 
      // ═══════════════════════════════════════════════
-     // STAGE 2: BOSS (gpt-5.4) — Review & Upgrade
+     // STAGE 2: BOSS (gpt-4o) — Review & Upgrade
      // ═══════════════════════════════════════════════
-     console.log("🧠 Stage 2: Boss reviewing with gpt-5.4 (high reasoning)...")
+     console.log("🧠 Stage 2: Boss reviewing with gpt-4o (high reasoning)...")
      const startBoss = Date.now()
 
       const bossResponse = await openai.chat.completions.create({
-         model: "gpt-5.4",
-         reasoning_effort: "high",
+         model: "gpt-4o",
          messages: [
             { role: "developer", content: `You are the Ruthless Creative Director at a top-tier culture-led agency. 
 Your job is to kill "Artificial Smog"—the generic, wordy, flowery marketing fluff that AI often generates.
