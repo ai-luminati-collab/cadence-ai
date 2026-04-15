@@ -119,20 +119,43 @@ export default function OnboardingPage() {
 
     setImporterLoading(true)
     try {
-      // 1) Parse files server-side
+      // 1) Parse files server-side — one file per request to dodge Vercel's
+      //    4.5 MB request body cap. Run with light concurrency.
       let parsedDocs: { source: string; text: string }[] = []
       if (importerFiles.length) {
         setImporterStatus(`Reading ${importerFiles.length} file(s) — vision OCR may take a minute…`)
-        const fd = new FormData()
-        for (const f of importerFiles) fd.append('files', f)
-        const res = await fetch('/api/upload', { method: 'POST', body: fd })
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}))
-          throw new Error(err.error || `Upload failed (${res.status})`)
+        const CONCURRENCY = 3
+        const queue = [...importerFiles]
+        let completed = 0
+
+        const uploadOne = async (file: File): Promise<{ source: string; text: string } | null> => {
+          const fd = new FormData()
+          fd.append('files', file)
+          const res = await fetch('/api/upload', { method: 'POST', body: fd })
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}))
+            setImporterWarnings((w) => [...w, `${file.name}: ${err.error || `upload failed (${res.status})`}`])
+            return null
+          }
+          const json = await res.json()
+          if (json.errors?.length) setImporterWarnings((w) => [...w, ...json.errors])
+          return (json.documents && json.documents[0]) || null
         }
-        const json = await res.json()
-        parsedDocs = json.documents || []
-        if (json.errors?.length) setImporterWarnings((w) => [...w, ...json.errors])
+
+        const workers: Promise<void>[] = []
+        for (let w = 0; w < CONCURRENCY; w++) {
+          workers.push((async () => {
+            while (queue.length) {
+              const f = queue.shift()
+              if (!f) break
+              const doc = await uploadOne(f)
+              if (doc) parsedDocs.push(doc)
+              completed += 1
+              setImporterStatus(`Read ${completed}/${importerFiles.length} file(s) — vision OCR is slow on big PDFs…`)
+            }
+          })())
+        }
+        await Promise.all(workers)
       }
 
       // 2) Combine + extract products
