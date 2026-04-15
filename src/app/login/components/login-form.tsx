@@ -23,18 +23,30 @@ export function LoginForm() {
     const password = target.password.value
 
     if (isSignUp) {
-      const { error, data } = await supabase.auth.signUp({
+      const { error: signUpError, data: signUpData } = await supabase.auth.signUp({
         email,
         password,
         options: {
           emailRedirectTo: `${location.origin}/auth/callback`,
         },
       })
-      if (error) {
-        setMessage({ type: 'error', text: error.message })
+      if (signUpError) {
+        setMessage({ type: 'error', text: signUpError.message })
+      } else if (signUpData.session) {
+        // Email confirmation is OFF — Supabase returned a session, go straight in.
+        setMessage({ type: 'success', text: 'Account created. Signing you in…' })
+        window.location.href = '/dashboard'
       } else {
-        setMessage({ type: 'success', text: 'Sign up successful! You can now log in (or check your email for confirmation if required).' })
-        setIsSignUp(false) // Switch back to login
+        // No session returned — try password sign-in immediately as a fallback.
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+        if (!signInError) {
+          setMessage({ type: 'success', text: 'Account created. Signing you in…' })
+          window.location.href = '/dashboard'
+        } else if (signInError.message.toLowerCase().includes('not confirmed')) {
+          setMessage({ type: 'error', text: 'Account created, but email confirmation is required by Supabase. Disable "Confirm email" in Supabase Auth settings to sign in directly, or check your inbox.' })
+        } else {
+          setMessage({ type: 'error', text: signInError.message })
+        }
       }
     } else {
       const { error } = await supabase.auth.signInWithPassword({
