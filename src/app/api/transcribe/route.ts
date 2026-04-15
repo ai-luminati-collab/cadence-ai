@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 export async function POST(req: NextRequest) {
   try {
+    const apiKey = process.env.OPENAI_API_KEY
+    if (!apiKey) {
+      return NextResponse.json({ error: 'OPENAI_API_KEY not configured on server' }, { status: 500 })
+    }
+    const openai = new OpenAI({ apiKey })
+
     const { audio } = await req.json()
     
     if (!audio) {
