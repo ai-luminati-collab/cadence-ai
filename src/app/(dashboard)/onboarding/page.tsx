@@ -7,13 +7,15 @@ import { generateBrandStrategy } from '@/actions/strategy'
 import { researchBrand, BrandResearch, ToneSample, startBrandDeepResearch, pollDeepResearch, synthesizeResearchReport } from '@/actions/research'
 import { ResearchWaiting } from '@/components/ui/ResearchWaiting'
 import { extractEpiphany } from '@/actions/epiphany'
+import { extractFromMultipleSources } from '@/actions/productExtractor'
 import { generateClarifyingQuestions, ClarifyingQuestion } from '@/actions/clarify'
 import { AskAIButton, ExpandAIButton } from '@/components/ui/AskAIButton'
 import { 
   Sparkles, ArrowRight, ArrowLeft, Building2, Users, Palette, 
   CheckCircle2, Link as LinkIcon, Plus, X, UploadCloud,
   Activity, RefreshCw, Camera, Briefcase, MessageSquare, Play, Globe, Music,
-  Search, Brain, MessageCircle, Loader2, Paperclip, SkipForward, Infinity, Download
+  Search, Brain, MessageCircle, Loader2, Paperclip, SkipForward, Infinity, Download,
+  FileText, Wand2, Trash2
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -88,6 +90,106 @@ export default function OnboardingPage() {
   const [isLoadingQuestions, setIsLoadingQuestions] = React.useState(false)
   const [openFloorIndex, setOpenFloorIndex] = React.useState(0)
   const [openFloorFiles, setOpenFloorFiles] = React.useState<Record<string, string[]>>({})
+
+  // ── Smart Product Importer state ──
+  const [importerFiles, setImporterFiles] = React.useState<File[]>([])
+  const [importerUrls, setImporterUrls] = React.useState<string[]>([])
+  const [importerUrlInput, setImporterUrlInput] = React.useState('')
+  const [importerLoading, setImporterLoading] = React.useState(false)
+  const [importerStatus, setImporterStatus] = React.useState<string>('')
+  const [importerError, setImporterError] = React.useState<string | null>(null)
+  const [importedProducts, setImportedProducts] = React.useState<ProductEntry[]>([])
+  const [importedServices, setImportedServices] = React.useState<ServiceEntry[]>([])
+  const [importerWarnings, setImporterWarnings] = React.useState<string[]>([])
+
+  async function runProductImporter() {
+    setImporterError(null)
+    setImporterWarnings([])
+    setImportedProducts([])
+    setImportedServices([])
+
+    const urls: string[] = []
+    if (formData.website?.trim()) urls.push(formData.website.trim())
+    for (const u of importerUrls) if (u.trim()) urls.push(u.trim())
+
+    if (!importerFiles.length && !urls.length) {
+      setImporterError('Add at least one file or URL (your website URL counts).')
+      return
+    }
+
+    setImporterLoading(true)
+    try {
+      // 1) Parse files server-side
+      let parsedDocs: { source: string; text: string }[] = []
+      if (importerFiles.length) {
+        setImporterStatus(`Reading ${importerFiles.length} file(s) — vision OCR may take a minute…`)
+        const fd = new FormData()
+        for (const f of importerFiles) fd.append('files', f)
+        const res = await fetch('/api/upload', { method: 'POST', body: fd })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          throw new Error(err.error || `Upload failed (${res.status})`)
+        }
+        const json = await res.json()
+        parsedDocs = json.documents || []
+        if (json.errors?.length) setImporterWarnings((w) => [...w, ...json.errors])
+      }
+
+      // 2) Combine + extract products
+      setImporterStatus('Extracting products with AI…')
+      const extraction = await extractFromMultipleSources({ parsedDocs, urls })
+      if (!extraction.success) throw new Error(extraction.error || 'Extraction failed')
+      setImportedProducts(extraction.data?.products || [])
+      setImportedServices(extraction.data?.services || [])
+      if (extraction.warnings?.length) setImporterWarnings((w) => [...w, ...(extraction.warnings || [])])
+      setImporterStatus(
+        `Extracted ${extraction.data?.products?.length || 0} product(s), ${extraction.data?.services?.length || 0} service(s).`
+      )
+    } catch (e: any) {
+      setImporterError(e?.message || 'Import failed')
+      setImporterStatus('')
+    } finally {
+      setImporterLoading(false)
+    }
+  }
+
+  function commitImportedToBrand() {
+    const existingNames = new Set((formData.coreProducts || []).map((n) => n.toLowerCase()))
+    const newNames = importedProducts
+      .map((p) => p.name)
+      .filter((n) => n && !existingNames.has(n.toLowerCase()))
+
+    const mergedCatalog = [...(formData.productCatalog || []), ...importedProducts]
+    const mergedServices = [...(formData.serviceOfferings || []), ...importedServices]
+    const mergedUrls = Array.from(
+      new Set([...(formData.productPageUrls || []), ...importerUrls.filter(Boolean)])
+    )
+    const newDocs: UploadedDoc[] = importerFiles.map((f) => ({
+      name: f.name,
+      type: f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf')
+        ? 'pdf'
+        : f.type.startsWith('image/')
+        ? 'image'
+        : 'doc',
+      url: '', // stateless v1 — file not persisted
+    }))
+
+    setFormData((prev) => ({
+      ...prev,
+      coreProducts: [...(prev.coreProducts || []), ...newNames],
+      productCatalog: mergedCatalog,
+      serviceOfferings: mergedServices,
+      productPageUrls: mergedUrls,
+      uploadedDocs: [...(prev.uploadedDocs || []), ...newDocs],
+    }))
+
+    // Reset importer
+    setImportedProducts([])
+    setImportedServices([])
+    setImporterFiles([])
+    setImporterUrls([])
+    setImporterStatus(`✓ Saved ${newNames.length} product(s) to brand.`)
+  }
 
   const [customChips, setCustomChips] = React.useState({
     primaryAudiences: [] as string[],
@@ -513,6 +615,216 @@ export default function OnboardingPage() {
                 <div className="space-y-3 animate-in fade-in duration-300">
                   <label className="text-sm font-bold uppercase tracking-wider text-slate-500">Core Products / Menu Items</label>
                   <p className="text-xs text-blue-600/80 mb-2">List your actual products, menu items, or service names. The AI will ONLY reference these — never invent fake offerings. (AI will auto-suggest from research if left empty)</p>
+
+                  {/* ── Smart Product Importer ── */}
+                  <div className="rounded-2xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 p-4 space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Wand2 className="w-4 h-4 text-emerald-600" />
+                      <span className="text-sm font-bold text-emerald-700">AI Auto-Import</span>
+                      <span className="text-[10px] uppercase tracking-wider text-emerald-600/70">Gemini 2.5 Pro Vision</span>
+                    </div>
+
+                    {/* File dropzone */}
+                    <label className="block rounded-xl border-2 border-dashed border-emerald-300 bg-white p-5 text-center cursor-pointer hover:bg-emerald-50 transition">
+                      <UploadCloud className="w-6 h-6 mx-auto text-emerald-500 mb-1" />
+                      <div className="text-sm font-semibold text-slate-700">Drop PDFs, DOCX, PPTX, or images</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Up to 10 files · 50 MB each · scanned menus & embedded images supported</div>
+                      <input
+                        type="file"
+                        multiple
+                        accept=".pdf,.docx,.pptx,.doc,.ppt,.png,.jpg,.jpeg,.webp,.gif,.txt,.md"
+                        className="hidden"
+                        onChange={(e) => {
+                          const picked = Array.from(e.target.files || [])
+                          const merged = [...importerFiles, ...picked].slice(0, 10)
+                          setImporterFiles(merged)
+                          e.currentTarget.value = ''
+                        }}
+                      />
+                    </label>
+
+                    {importerFiles.length > 0 && (
+                      <div className="space-y-1.5">
+                        {importerFiles.map((f, i) => (
+                          <div key={i} className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-slate-200 text-xs">
+                            <FileText className="w-3.5 h-3.5 text-slate-500" />
+                            <span className="flex-1 truncate font-medium text-slate-700">{f.name}</span>
+                            <span className="text-slate-400">{(f.size / 1024 / 1024).toFixed(1)} MB</span>
+                            <button
+                              type="button"
+                              onClick={() => setImporterFiles(importerFiles.filter((_, idx) => idx !== i))}
+                              className="text-slate-400 hover:text-red-500"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* URL list */}
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                          <input
+                            value={importerUrlInput}
+                            onChange={(e) => setImporterUrlInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                const v = importerUrlInput.trim()
+                                if (v) {
+                                  setImporterUrls([...importerUrls, v])
+                                  setImporterUrlInput('')
+                                }
+                              }
+                            }}
+                            placeholder="https://yourbrand.com/menu  (extra product/menu page)"
+                            className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-200 bg-white focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 outline-none"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const v = importerUrlInput.trim()
+                            if (v) {
+                              setImporterUrls([...importerUrls, v])
+                              setImporterUrlInput('')
+                            }
+                          }}
+                          className="px-3 py-2 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-sm font-semibold text-slate-700"
+                        >
+                          + URL
+                        </button>
+                      </div>
+                      {(importerUrls.length > 0 || formData.website) && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {formData.website && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-200 rounded text-[11px] text-blue-700 font-medium">
+                              <LinkIcon className="w-3 h-3" /> {formData.website} <em className="text-blue-400 not-italic">(your website — auto-included)</em>
+                            </span>
+                          )}
+                          {importerUrls.map((u, i) => (
+                            <span key={i} className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-slate-200 rounded text-[11px] text-slate-700">
+                              {u}
+                              <button type="button" onClick={() => setImporterUrls(importerUrls.filter((_, idx) => idx !== i))} className="text-slate-400 hover:text-red-500">
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Run button */}
+                    <button
+                      type="button"
+                      disabled={importerLoading}
+                      onClick={runProductImporter}
+                      className="w-full px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 transition"
+                    >
+                      {importerLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                      {importerLoading ? 'Extracting…' : 'Extract Products with AI'}
+                    </button>
+
+                    {importerStatus && <div className="text-xs text-emerald-700 font-medium">{importerStatus}</div>}
+                    {importerError && <div className="text-xs text-red-600 font-medium bg-red-50 border border-red-200 rounded-lg px-3 py-2">{importerError}</div>}
+                    {importerWarnings.length > 0 && (
+                      <details className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        <summary className="cursor-pointer font-semibold">{importerWarnings.length} warning(s)</summary>
+                        <ul className="mt-1 space-y-0.5 pl-3 list-disc">
+                          {importerWarnings.map((w, i) => <li key={i}>{w}</li>)}
+                        </ul>
+                      </details>
+                    )}
+
+                    {/* Editable preview */}
+                    {(importedProducts.length > 0 || importedServices.length > 0) && (
+                      <div className="space-y-3 pt-2 border-t border-emerald-200">
+                        <div className="text-xs font-bold uppercase tracking-wider text-emerald-700">
+                          Review &amp; edit before saving ({importedProducts.length + importedServices.length} item{importedProducts.length + importedServices.length !== 1 ? 's' : ''})
+                        </div>
+
+                        {importedProducts.map((p, i) => (
+                          <div key={`p-${i}`} className="p-3 bg-white rounded-lg border border-slate-200 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <input
+                                value={p.name}
+                                onChange={(e) => {
+                                  const next = [...importedProducts]; next[i] = { ...next[i], name: e.target.value }
+                                  setImportedProducts(next)
+                                }}
+                                className="flex-1 text-sm font-bold text-slate-800 bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-emerald-400 outline-none px-0 py-1"
+                              />
+                              <button type="button" onClick={() => setImportedProducts(importedProducts.filter((_, idx) => idx !== i))} className="text-slate-400 hover:text-red-500">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                            <textarea
+                              value={p.description}
+                              onChange={(e) => {
+                                const next = [...importedProducts]; next[i] = { ...next[i], description: e.target.value }
+                                setImportedProducts(next)
+                              }}
+                              rows={2}
+                              className="w-full text-xs text-slate-600 bg-slate-50 border border-slate-100 rounded px-2 py-1.5 focus:border-emerald-300 outline-none"
+                            />
+                            <div className="flex flex-wrap gap-1 text-[10px]">
+                              {p.priceRange && <span className="px-1.5 py-0.5 bg-amber-50 border border-amber-200 rounded text-amber-700 font-semibold">{p.priceRange}</span>}
+                              {p.targetSegment && <span className="px-1.5 py-0.5 bg-blue-50 border border-blue-200 rounded text-blue-700">{p.targetSegment}</span>}
+                              {(p.features || []).slice(0, 4).map((f, fi) => (
+                                <span key={fi} className="px-1.5 py-0.5 bg-slate-100 border border-slate-200 rounded text-slate-600">{f}</span>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+
+                        {importedServices.map((s, i) => (
+                          <div key={`s-${i}`} className="p-3 bg-white rounded-lg border border-violet-200 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-violet-600 px-1.5 py-0.5 bg-violet-50 rounded">Service</span>
+                              <input
+                                value={s.name}
+                                onChange={(e) => {
+                                  const next = [...importedServices]; next[i] = { ...next[i], name: e.target.value }
+                                  setImportedServices(next)
+                                }}
+                                className="flex-1 text-sm font-bold text-slate-800 bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-violet-400 outline-none px-0 py-1"
+                              />
+                              <button type="button" onClick={() => setImportedServices(importedServices.filter((_, idx) => idx !== i))} className="text-slate-400 hover:text-red-500">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                            <textarea
+                              value={s.description}
+                              onChange={(e) => {
+                                const next = [...importedServices]; next[i] = { ...next[i], description: e.target.value }
+                                setImportedServices(next)
+                              }}
+                              rows={2}
+                              className="w-full text-xs text-slate-600 bg-slate-50 border border-slate-100 rounded px-2 py-1.5 focus:border-violet-300 outline-none"
+                            />
+                          </div>
+                        ))}
+
+                        <button
+                          type="button"
+                          onClick={commitImportedToBrand}
+                          className="w-full px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold flex items-center justify-center gap-2"
+                        >
+                          <CheckCircle2 className="w-4 h-4" /> Save {importedProducts.length + importedServices.length} item(s) to brand
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 my-2">
+                    <div className="flex-1 h-px bg-slate-200" />
+                    <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">Or add manually</span>
+                    <div className="flex-1 h-px bg-slate-200" />
+                  </div>
+
                   <div className="flex flex-wrap gap-2 mb-2">
                     {(formData.coreProducts || []).map((product, i) => (
                       <span key={i} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-medium">

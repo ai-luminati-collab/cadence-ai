@@ -30,6 +30,54 @@ export async function extractFromUrl(url: string): Promise<{
   }
 }
 
+// ── Multi-Source Extraction (files + URLs combined) ──
+export async function extractFromMultipleSources(input: {
+  parsedDocs?: { source: string; text: string }[]
+  urls?: string[]
+}): Promise<{
+  success: boolean
+  data?: { products?: ProductEntry[]; services?: ServiceEntry[]; rawSummary: string }
+  error?: string
+  warnings?: string[]
+}> {
+  const warnings: string[] = []
+  const corpusParts: string[] = []
+
+  // 1) Scrape every URL via Jina, in parallel
+  if (input.urls?.length) {
+    const { extractWebsiteContent } = await import('@/lib/jina')
+    const scraped = await Promise.allSettled(
+      input.urls.map(async (u) => ({ url: u, text: await extractWebsiteContent(u) }))
+    )
+    for (const r of scraped) {
+      if (r.status === 'fulfilled' && r.value.text) {
+        corpusParts.push(`=== SOURCE: ${r.value.url} ===\n${r.value.text}`)
+      } else if (r.status === 'fulfilled') {
+        warnings.push(`Could not scrape ${r.value.url}`)
+      } else {
+        warnings.push(`Scrape failed: ${r.reason?.message ?? r.reason}`)
+      }
+    }
+  }
+
+  // 2) Add already-parsed document text
+  if (input.parsedDocs?.length) {
+    for (const d of input.parsedDocs) {
+      if (d.text?.trim()) {
+        corpusParts.push(`=== SOURCE: ${d.source} ===\n${d.text}`)
+      }
+    }
+  }
+
+  if (!corpusParts.length) {
+    return { success: false, error: 'No content extracted from the provided sources.', warnings }
+  }
+
+  const combined = corpusParts.join('\n\n')
+  const result = await extractFromText(combined, 'multi-source-import')
+  return { ...result, warnings }
+}
+
 // ── Text-Based Extraction (from scrapes, manual input, or OCR'd docs) ──
 export async function extractFromText(rawText: string, sourceLabel: string = 'manual'): Promise<{
   success: boolean
