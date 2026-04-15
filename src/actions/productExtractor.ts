@@ -84,7 +84,7 @@ export async function extractFromText(rawText: string, sourceLabel: string = 'ma
   data?: { products?: ProductEntry[], services?: ServiceEntry[], rawSummary: string }
   error?: string
 }> {
-  const prompt = `You are a product intelligence analyst. Extract ALL products and/or services from this content.
+  const prompt = `You are a product intelligence analyst. Extract ONLY concrete, sellable line-items from this content.
 
 SOURCE: ${sourceLabel}
 
@@ -92,10 +92,16 @@ CONTENT:
 ${rawText.slice(0, 8000)}
 
 TASK:
-1. Identify every distinct product or service mentioned.
-2. For each, extract: name, description, key features, price range (if mentioned), target segment.
-3. Classify each as a "product" (physical/digital good) or "service" (consulting, SaaS, agency work, etc.).
-4. Write a 2-3 sentence "rawSummary" capturing the overall business model.
+1. Identify every distinct PURCHASABLE product or service (real SKUs, menu items, packages, offerings with a clear name).
+2. SKIP all of the following:
+   - Section headers, category labels, navigation items ("Our Menu", "Services", "About Us", "Appetizers", "Main Course")
+   - Marketing taglines, slogans, "why choose us" bullets, testimonials
+   - Generic phrases ("Premium Quality", "Expert Team", "24/7 Support") unless they're an actual offering
+   - Descriptions of the brand itself, the company, or the page
+3. For each real item, extract: name, description, key features, price range (if mentioned), target segment.
+4. Classify each as a "product" (physical/digital good, menu item) or "service" (consulting, SaaS, agency work, etc.).
+5. If unsure whether something is a real offering vs. a header/tagline, SKIP it. Precision > recall.
+6. Write a 2-3 sentence "rawSummary" capturing the overall business model.
 
 Return STRICTLY as JSON (no markdown):
 {

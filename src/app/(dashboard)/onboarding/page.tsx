@@ -294,7 +294,30 @@ export default function OnboardingPage() {
     if (data.discoveredAudiences?.length) updateForm('primaryAudiences', data.discoveredAudiences.slice(0, 3))
     if (data.discoveredGoals?.length) updateForm('primaryGoals', data.discoveredGoals.slice(0, 3))
     if (data.suggestedTone?.length) updateForm('tone', data.suggestedTone.slice(0, 3))
-    if (data.suggestedPlatforms?.length) updateForm('platforms', data.suggestedPlatforms)
+    if (data.suggestedPlatforms?.length) {
+      // Normalize AI-returned strings (e.g. "Instagram", "facebook") to MASTER_PLATFORM_LIBRARY entries
+      // so Step 1 checkbox state + Step 5 frequency mapping line up.
+      const normalize = (raw: string): string | null => {
+        const s = raw.trim().toLowerCase()
+        const exact = MASTER_PLATFORM_LIBRARY.find(p => p.toLowerCase() === s)
+        if (exact) return exact
+        if (/instagram|facebook|\bmeta\b/.test(s)) return "Meta (Instagram & Facebook)"
+        if (/linkedin/.test(s)) return "LinkedIn"
+        if (/twitter|\bx\b/.test(s)) return "X (Twitter)"
+        if (/tiktok/.test(s)) return "TikTok"
+        if (/youtube/.test(s)) return "YouTube"
+        if (/pinterest/.test(s)) return "Pinterest"
+        if (/snapchat/.test(s)) return "Snapchat"
+        if (/threads/.test(s)) return "Threads"
+        const partial = MASTER_PLATFORM_LIBRARY.find(p => p.toLowerCase().includes(s) || s.includes(p.toLowerCase()))
+        return partial || null
+      }
+      const normalized = Array.from(new Set(
+        data.suggestedPlatforms.map(normalize).filter((p): p is string => !!p)
+      ))
+      data.suggestedPlatforms = normalized
+      updateForm('platforms', normalized)
+    }
     // Auto-populate core products from research (user can edit later)
     if (data.coreProducts?.length && !(formData.coreProducts?.length)) {
       updateForm('coreProducts', data.coreProducts)
@@ -438,18 +461,16 @@ export default function OnboardingPage() {
   }
 
   // --- File Upload ---
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, target: 'assets' | 'openfloor') => {
-    const files = e.target.files
-    if (!files?.length) return
+  const processFiles = async (files: FileList | File[], target: 'assets' | 'openfloor') => {
+    const arr = Array.from(files)
+    if (!arr.length) return
     setIsUploading(true)
     setError(null)
     try {
-      // Create local object URLs for reliable attachment usage without needing remote storage
-      for (const file of Array.from(files)) {
+      for (const file of arr) {
         const publicUrl = URL.createObjectURL(file)
-        
         if (target === 'assets') {
-          updateForm('brandAssets', [...(formData.brandAssets || []), publicUrl])
+          setFormData(prev => ({ ...prev, brandAssets: [...(prev.brandAssets || []), publicUrl] }))
         } else {
           const qId = clarifyingQuestions[openFloorIndex]?.id || 'general'
           setOpenFloorFiles(prev => ({ ...prev, [qId]: [...(prev[qId] || []), publicUrl] }))
@@ -459,8 +480,28 @@ export default function OnboardingPage() {
       setError(err.message || 'Upload failed')
     } finally {
       setIsUploading(false)
-      e.target.value = ''
     }
+  }
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, target: 'assets' | 'openfloor') => {
+    const files = e.target.files
+    if (!files?.length) return
+    await processFiles(files, target)
+    e.target.value = ''
+  }
+
+  const addBrandReferences = async (files: FileList | File[]) => {
+    const arr = Array.from(files)
+    const existing = formData.brandReferences || []
+    const slots = 15 - existing.length
+    if (slots <= 0) return
+    const newRefs: import('@/stores/brand').BrandAsset[] = []
+    for (let i = 0; i < Math.min(arr.length, slots); i++) {
+      const file = arr[i]; if (!file.type.startsWith('image/')) continue
+      const url = await new Promise<string>((resolve) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result as string); reader.readAsDataURL(file) })
+      newRefs.push({ id: `ref-${Date.now()}-${i}-${Math.random().toString(36).slice(2,6)}`, name: file.name, type: file.type.includes('webp') ? 'webp' : 'image', url, size: file.size, addedAt: new Date().toISOString() })
+    }
+    updateForm('brandReferences', [...existing, ...newRefs])
   }
 
   // --- Navigation ---
@@ -634,263 +675,7 @@ export default function OnboardingPage() {
                   />
                 </div>
 
-                {/* Core Products / Menu Items */}
-                <div className="space-y-3 animate-in fade-in duration-300">
-                  <label className="text-sm font-bold uppercase tracking-wider text-slate-500">Core Products / Menu Items</label>
-                  <p className="text-xs text-blue-600/80 mb-2">List your actual products, menu items, or service names. The AI will ONLY reference these — never invent fake offerings. (AI will auto-suggest from research if left empty)</p>
-
-                  {/* ── Smart Product Importer ── */}
-                  <div className="rounded-2xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 p-4 space-y-4">
-                    <div className="flex items-center gap-2">
-                      <Wand2 className="w-4 h-4 text-emerald-600" />
-                      <span className="text-sm font-bold text-emerald-700">AI Auto-Import</span>
-                      <span className="text-[10px] uppercase tracking-wider text-emerald-600/70">Gemini 2.5 Pro Vision</span>
-                    </div>
-
-                    {/* File dropzone */}
-                    <label className="block rounded-xl border-2 border-dashed border-emerald-300 bg-white p-5 text-center cursor-pointer hover:bg-emerald-50 transition">
-                      <UploadCloud className="w-6 h-6 mx-auto text-emerald-500 mb-1" />
-                      <div className="text-sm font-semibold text-slate-700">Drop PDFs, DOCX, PPTX, or images</div>
-                      <div className="text-xs text-slate-500 mt-0.5">Up to 10 files · 50 MB each · scanned menus & embedded images supported</div>
-                      <input
-                        type="file"
-                        multiple
-                        accept=".pdf,.docx,.pptx,.doc,.ppt,.png,.jpg,.jpeg,.webp,.gif,.txt,.md"
-                        className="hidden"
-                        onChange={(e) => {
-                          const picked = Array.from(e.target.files || [])
-                          const merged = [...importerFiles, ...picked].slice(0, 10)
-                          setImporterFiles(merged)
-                          e.currentTarget.value = ''
-                        }}
-                      />
-                    </label>
-
-                    {importerFiles.length > 0 && (
-                      <div className="space-y-1.5">
-                        {importerFiles.map((f, i) => (
-                          <div key={i} className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-slate-200 text-xs">
-                            <FileText className="w-3.5 h-3.5 text-slate-500" />
-                            <span className="flex-1 truncate font-medium text-slate-700">{f.name}</span>
-                            <span className="text-slate-400">{(f.size / 1024 / 1024).toFixed(1)} MB</span>
-                            <button
-                              type="button"
-                              onClick={() => setImporterFiles(importerFiles.filter((_, idx) => idx !== i))}
-                              className="text-slate-400 hover:text-red-500"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* URL list */}
-                    <div className="space-y-2">
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                          <input
-                            value={importerUrlInput}
-                            onChange={(e) => setImporterUrlInput(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault()
-                                const v = importerUrlInput.trim()
-                                if (v) {
-                                  setImporterUrls([...importerUrls, v])
-                                  setImporterUrlInput('')
-                                }
-                              }
-                            }}
-                            placeholder="https://yourbrand.com/menu  (extra product/menu page)"
-                            className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-200 bg-white focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 outline-none"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const v = importerUrlInput.trim()
-                            if (v) {
-                              setImporterUrls([...importerUrls, v])
-                              setImporterUrlInput('')
-                            }
-                          }}
-                          className="px-3 py-2 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-sm font-semibold text-slate-700"
-                        >
-                          + URL
-                        </button>
-                      </div>
-                      {(importerUrls.length > 0 || formData.website) && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {formData.website && (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-200 rounded text-[11px] text-blue-700 font-medium">
-                              <LinkIcon className="w-3 h-3" /> {formData.website} <em className="text-blue-400 not-italic">(your website — auto-included)</em>
-                            </span>
-                          )}
-                          {importerUrls.map((u, i) => (
-                            <span key={i} className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-slate-200 rounded text-[11px] text-slate-700">
-                              {u}
-                              <button type="button" onClick={() => setImporterUrls(importerUrls.filter((_, idx) => idx !== i))} className="text-slate-400 hover:text-red-500">
-                                <X className="w-3 h-3" />
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Run button */}
-                    <button
-                      type="button"
-                      disabled={importerLoading}
-                      onClick={runProductImporter}
-                      className="w-full px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 transition"
-                    >
-                      {importerLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                      {importerLoading ? 'Extracting…' : 'Extract Products with AI'}
-                    </button>
-
-                    {importerStatus && <div className="text-xs text-emerald-700 font-medium">{importerStatus}</div>}
-                    {importerError && <div className="text-xs text-red-600 font-medium bg-red-50 border border-red-200 rounded-lg px-3 py-2">{importerError}</div>}
-                    {importerWarnings.length > 0 && (
-                      <details className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                        <summary className="cursor-pointer font-semibold">{importerWarnings.length} warning(s)</summary>
-                        <ul className="mt-1 space-y-0.5 pl-3 list-disc">
-                          {importerWarnings.map((w, i) => <li key={i}>{w}</li>)}
-                        </ul>
-                      </details>
-                    )}
-
-                    {/* Editable preview */}
-                    {(importedProducts.length > 0 || importedServices.length > 0) && (
-                      <div className="space-y-3 pt-2 border-t border-emerald-200">
-                        <div className="text-xs font-bold uppercase tracking-wider text-emerald-700">
-                          Review &amp; edit before saving ({importedProducts.length + importedServices.length} item{importedProducts.length + importedServices.length !== 1 ? 's' : ''})
-                        </div>
-
-                        {importedProducts.map((p, i) => (
-                          <div key={`p-${i}`} className="p-3 bg-white rounded-lg border border-slate-200 space-y-2">
-                            <div className="flex items-center gap-2">
-                              <input
-                                value={p.name}
-                                onChange={(e) => {
-                                  const next = [...importedProducts]; next[i] = { ...next[i], name: e.target.value }
-                                  setImportedProducts(next)
-                                }}
-                                className="flex-1 text-sm font-bold text-slate-800 bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-emerald-400 outline-none px-0 py-1"
-                              />
-                              <button type="button" onClick={() => setImportedProducts(importedProducts.filter((_, idx) => idx !== i))} className="text-slate-400 hover:text-red-500">
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                            <textarea
-                              value={p.description}
-                              onChange={(e) => {
-                                const next = [...importedProducts]; next[i] = { ...next[i], description: e.target.value }
-                                setImportedProducts(next)
-                              }}
-                              rows={2}
-                              className="w-full text-xs text-slate-600 bg-slate-50 border border-slate-100 rounded px-2 py-1.5 focus:border-emerald-300 outline-none"
-                            />
-                            <div className="flex flex-wrap gap-1 text-[10px]">
-                              {p.priceRange && <span className="px-1.5 py-0.5 bg-amber-50 border border-amber-200 rounded text-amber-700 font-semibold">{p.priceRange}</span>}
-                              {p.targetSegment && <span className="px-1.5 py-0.5 bg-blue-50 border border-blue-200 rounded text-blue-700">{p.targetSegment}</span>}
-                              {(p.features || []).slice(0, 4).map((f, fi) => (
-                                <span key={fi} className="px-1.5 py-0.5 bg-slate-100 border border-slate-200 rounded text-slate-600">{f}</span>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-
-                        {importedServices.map((s, i) => (
-                          <div key={`s-${i}`} className="p-3 bg-white rounded-lg border border-violet-200 space-y-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-violet-600 px-1.5 py-0.5 bg-violet-50 rounded">Service</span>
-                              <input
-                                value={s.name}
-                                onChange={(e) => {
-                                  const next = [...importedServices]; next[i] = { ...next[i], name: e.target.value }
-                                  setImportedServices(next)
-                                }}
-                                className="flex-1 text-sm font-bold text-slate-800 bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-violet-400 outline-none px-0 py-1"
-                              />
-                              <button type="button" onClick={() => setImportedServices(importedServices.filter((_, idx) => idx !== i))} className="text-slate-400 hover:text-red-500">
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                            <textarea
-                              value={s.description}
-                              onChange={(e) => {
-                                const next = [...importedServices]; next[i] = { ...next[i], description: e.target.value }
-                                setImportedServices(next)
-                              }}
-                              rows={2}
-                              className="w-full text-xs text-slate-600 bg-slate-50 border border-slate-100 rounded px-2 py-1.5 focus:border-violet-300 outline-none"
-                            />
-                          </div>
-                        ))}
-
-                        <button
-                          type="button"
-                          onClick={commitImportedToBrand}
-                          className="w-full px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold flex items-center justify-center gap-2"
-                        >
-                          <CheckCircle2 className="w-4 h-4" /> Save {importedProducts.length + importedServices.length} item(s) to brand
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2 my-2">
-                    <div className="flex-1 h-px bg-slate-200" />
-                    <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">Or add manually</span>
-                    <div className="flex-1 h-px bg-slate-200" />
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    {(formData.coreProducts || []).map((product, i) => (
-                      <span key={i} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-medium">
-                        {product}
-                        <button type="button" onClick={() => {
-                          const updated = [...(formData.coreProducts || [])]
-                          updated.splice(i, 1)
-                          updateForm('coreProducts', updated)
-                        }} className="text-emerald-400 hover:text-red-500 transition-colors">
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                  <div className="flex gap-2">
-                    <input 
-                      id="coreProductInput"
-                      placeholder="e.g. Cheese Chilly Sandwich, Bombay Masala Toast..."
-                      className={inputClass + ' flex-1'}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ',') {
-                          e.preventDefault()
-                          const input = e.currentTarget
-                          const val = input.value.trim().replace(/,$/, '')
-                          if (val) {
-                            updateForm('coreProducts', [...(formData.coreProducts || []), val])
-                            input.value = ''
-                          }
-                        }
-                      }}
-                    />
-                    <button type="button" onClick={() => {
-                      const input = document.getElementById('coreProductInput') as HTMLInputElement
-                      const val = input?.value?.trim()
-                      if (val) {
-                        updateForm('coreProducts', [...(formData.coreProducts || []), val])
-                        input.value = ''
-                      }
-                    }} className="px-4 py-2 rounded-xl bg-emerald-500 text-white font-bold text-sm hover:bg-emerald-600 transition-all flex items-center gap-1.5">
-                      <Plus className="w-4 h-4" /> Add
-                    </button>
-                  </div>
-                </div>
+                {/* Core Products moved to Step 5 ("What do you sell?"). Step 0 is brand-level only. */}
               </div>
             </div>
           )}
@@ -973,6 +758,8 @@ export default function OnboardingPage() {
                                       const current = research.suggestedPlatforms || []
                                       const updated = isActive ? current.filter(p => p !== platform) : [...current, platform]
                                       setResearch({...research, suggestedPlatforms: updated})
+                                      // Keep formData.platforms in sync so Step 5 frequency mapping sees all picks.
+                                      updateForm('platforms', updated)
                                    }}
                                    className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-xl border transition-all ${isActive ? 'bg-purple-500 text-white border-purple-500 shadow-md scale-[1.02]' : 'bg-white text-slate-500 border-slate-200 hover:border-purple-300 hover:bg-purple-50'}`}
                                  >
@@ -1004,9 +791,27 @@ export default function OnboardingPage() {
                       <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-2"><Sparkles className="w-3 h-3 inline" /> USP Hypothesis</p>
                       {isEditingResearch ? (
                         <textarea value={research.uspHypothesis} onChange={e => setResearch({...research, uspHypothesis: e.target.value})} className={textareaClass} rows={4} />
-                      ) : (
-                        <p className="text-xs text-slate-600 leading-relaxed">{research.uspHypothesis}</p>
-                      )}
+                      ) : (() => {
+                        // Split a long USP hypothesis into bullets on "1." "2." "3." or "•" / newline patterns.
+                        const raw = (research.uspHypothesis || '').trim()
+                        const parts = raw
+                          .split(/(?:\n|\s*(?:\d+\.|•|—)\s+)/)
+                          .map(s => s.trim())
+                          .filter(s => s.length > 4)
+                        if (parts.length <= 1) {
+                          return <p className="text-xs text-slate-600 leading-relaxed">{raw}</p>
+                        }
+                        return (
+                          <ul className="space-y-1.5">
+                            {parts.map((p, i) => (
+                              <li key={i} className="text-xs text-slate-600 leading-relaxed flex gap-2">
+                                <span className="text-emerald-500 flex-shrink-0">•</span>
+                                <span>{p.replace(/^[.\-—]+\s*/, '')}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )
+                      })()}
                     </div>
                   </div>
 
@@ -1321,26 +1126,144 @@ export default function OnboardingPage() {
                   <p className="text-[10px] text-slate-400">Paste your product page link and our AI will extract features, pricing, and USPs automatically during strategy generation.</p>
                 </div>
 
-                {/* Document Upload */}
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-500">Upload Pitch Deck, Product Catalog, or Brand Documents</label>
-                  <label className="flex items-center gap-3 p-4 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition-colors text-slate-400">
-                    <UploadCloud className="w-5 h-5" />
-                    <span className="text-xs font-bold">{isUploading ? 'Uploading...' : 'Upload PDF, PPT, Images — our AI reads them all'}</span>
-                    <input type="file" className="hidden" onChange={e => handleFileUpload(e, 'assets')} disabled={isUploading} multiple accept="image/*,.pdf,.ppt,.pptx,.doc,.docx" />
+                {/* ── Smart Product Importer (Gemini vision) ── */}
+                <div className="rounded-2xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 p-4 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Wand2 className="w-4 h-4 text-emerald-600" />
+                    <span className="text-sm font-bold text-emerald-700">AI Auto-Import</span>
+                    <span className="text-[10px] uppercase tracking-wider text-emerald-600/70">Gemini 2.5 Pro Vision</span>
+                  </div>
+                  <p className="text-xs text-slate-500">Drop pitch decks, menus, product catalogs, or brochures. We'll read every image, photo, and scan — then auto-fill your product list.</p>
+
+                  {/* File dropzone */}
+                  <label
+                    onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('bg-emerald-100') }}
+                    onDragLeave={(e) => { e.currentTarget.classList.remove('bg-emerald-100') }}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      e.currentTarget.classList.remove('bg-emerald-100')
+                      const picked = Array.from(e.dataTransfer.files || [])
+                      if (picked.length) setImporterFiles((prev) => [...prev, ...picked].slice(0, 10))
+                    }}
+                    className="block rounded-xl border-2 border-dashed border-emerald-300 bg-white p-5 text-center cursor-pointer hover:bg-emerald-50 transition">
+                    <UploadCloud className="w-6 h-6 mx-auto text-emerald-500 mb-1" />
+                    <div className="text-sm font-semibold text-slate-700">Drop PDFs, DOCX, PPTX, or images</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">Up to 10 files · 50 MB each · scanned menus & embedded images supported</div>
+                    <input
+                      type="file"
+                      multiple
+                      accept=".pdf,.docx,.pptx,.doc,.ppt,.png,.jpg,.jpeg,.webp,.gif,.txt,.md"
+                      className="hidden"
+                      onChange={(e) => {
+                        const picked = Array.from(e.target.files || [])
+                        if (picked.length) setImporterFiles((prev) => [...prev, ...picked].slice(0, 10))
+                        e.currentTarget.value = ''
+                      }}
+                    />
                   </label>
-                  {formData.uploadedDocs && formData.uploadedDocs.length > 0 && (
+                  {importerFiles.length > 0 && (
                     <div className="flex flex-wrap gap-2">
-                      {formData.uploadedDocs.map((doc, i) => (
-                        <div key={i} className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-600 flex items-center gap-2">
-                          <Paperclip className="w-3 h-3" /> {doc.name}
-                          <button type="button" onClick={() => {
-                            const docs = [...(formData.uploadedDocs || [])]
-                            docs.splice(i, 1)
-                            updateForm('uploadedDocs', docs)
-                          }}><X className="w-3 h-3 text-slate-400 hover:text-red-500" /></button>
+                      {importerFiles.map((f, i) => (
+                        <div key={i} className="px-3 py-1.5 bg-white border border-emerald-200 rounded-lg text-xs font-medium text-slate-600 flex items-center gap-2">
+                          <Paperclip className="w-3 h-3" /> {f.name}
+                          <button type="button" onClick={() => setImporterFiles((prev) => prev.filter((_, j) => j !== i))}>
+                            <X className="w-3 h-3 text-slate-400 hover:text-red-500" />
+                          </button>
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  {/* URL chips */}
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Or add product/menu URLs</label>
+                    <div className="flex gap-2">
+                      <input
+                        value={importerUrlInput}
+                        onChange={(e) => setImporterUrlInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && importerUrlInput.trim()) {
+                            e.preventDefault()
+                            setImporterUrls((prev) => [...prev, importerUrlInput.trim()])
+                            setImporterUrlInput('')
+                          }
+                        }}
+                        placeholder="https://yoursite.com/menu — press Enter"
+                        className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 focus:border-emerald-400 focus:outline-none bg-white"
+                      />
+                      <button type="button" onClick={() => {
+                        if (importerUrlInput.trim()) {
+                          setImporterUrls((prev) => [...prev, importerUrlInput.trim()])
+                          setImporterUrlInput('')
+                        }
+                      }} className="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-500">Add</button>
+                    </div>
+                    {importerUrls.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {importerUrls.map((u, i) => (
+                          <div key={i} className="px-3 py-1.5 bg-white border border-emerald-200 rounded-lg text-xs font-medium text-slate-600 flex items-center gap-2">
+                            <LinkIcon className="w-3 h-3" /> {u}
+                            <button type="button" onClick={() => setImporterUrls((prev) => prev.filter((_, j) => j !== i))}>
+                              <X className="w-3 h-3 text-slate-400 hover:text-red-500" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      disabled={importerLoading || (!importerFiles.length && !importerUrls.length && !formData.website?.trim())}
+                      onClick={runProductImporter}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-bold rounded-lg hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <Wand2 className="w-4 h-4" /> {importerLoading ? 'Extracting…' : 'Extract with AI'}
+                    </button>
+                    {importerStatus && (
+                      <span className="text-xs text-slate-500">{importerStatus}</span>
+                    )}
+                  </div>
+
+                  {importerError && (
+                    <div className="text-xs font-medium text-red-600 bg-red-50 border border-red-100 rounded-lg p-2">{importerError}</div>
+                  )}
+                  {importerWarnings.length > 0 && (
+                    <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-2 space-y-0.5">
+                      {importerWarnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
+                    </div>
+                  )}
+
+                  {/* Preview + commit */}
+                  {(importedProducts.length > 0 || importedServices.length > 0) && (
+                    <div className="rounded-xl bg-white border border-emerald-200 p-3 space-y-3">
+                      <div className="text-xs font-black text-emerald-700 uppercase tracking-widest">Preview — review before saving</div>
+                      {importedProducts.length > 0 && (
+                        <div className="space-y-1.5">
+                          <div className="text-[11px] font-bold text-blue-700 uppercase">Products ({importedProducts.length})</div>
+                          {importedProducts.map((p, i) => (
+                            <div key={i} className="text-xs text-slate-700 border-l-2 border-blue-300 pl-2">
+                              <span className="font-semibold">{p.name}</span>
+                              {p.description && <span className="text-slate-500"> — {p.description}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {importedServices.length > 0 && (
+                        <div className="space-y-1.5">
+                          <div className="text-[11px] font-bold text-emerald-700 uppercase">Services ({importedServices.length})</div>
+                          {importedServices.map((s, i) => (
+                            <div key={i} className="text-xs text-slate-700 border-l-2 border-emerald-300 pl-2">
+                              <span className="font-semibold">{s.name}</span>
+                              {s.description && <span className="text-slate-500"> — {s.description}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <button type="button" onClick={commitImportedToBrand} className="w-full px-3 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-500 flex items-center justify-center gap-2">
+                        <CheckCircle2 className="w-4 h-4" /> Save to Brand
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1457,9 +1380,17 @@ export default function OnboardingPage() {
                       </div>
                     )
                   })}
-                  <label className="aspect-square rounded-xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors text-slate-400">
+                  <label
+                    onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-blue-500', 'bg-blue-50') }}
+                    onDragLeave={(e) => { e.currentTarget.classList.remove('border-blue-500', 'bg-blue-50') }}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      e.currentTarget.classList.remove('border-blue-500', 'bg-blue-50')
+                      if (e.dataTransfer.files?.length) processFiles(e.dataTransfer.files, 'assets')
+                    }}
+                    className="aspect-square rounded-xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors text-slate-400">
                     <UploadCloud className="w-6 h-6 mb-1" />
-                    <span className="text-[10px] font-bold">{isUploading ? 'Uploading...' : 'Upload'}</span>
+                    <span className="text-[10px] font-bold">{isUploading ? 'Uploading...' : 'Upload or Drop'}</span>
                     <input type="file" className="hidden" onChange={e => handleFileUpload(e, 'assets')} disabled={isUploading} multiple accept="image/*,.pdf,.ppt,.pptx,.zip" />
                   </label>
                 </div>
@@ -1485,20 +1416,22 @@ export default function OnboardingPage() {
                       </div>
                     </div>
                   ))}
-                  <label className="aspect-square rounded-xl border-2 border-dashed border-pink-300 flex flex-col items-center justify-center cursor-pointer hover:border-pink-500 hover:bg-pink-50 transition-all text-pink-400 gap-1">
+                  <label
+                    onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-pink-500', 'bg-pink-50') }}
+                    onDragLeave={(e) => { e.currentTarget.classList.remove('border-pink-500', 'bg-pink-50') }}
+                    onDrop={async (e) => {
+                      e.preventDefault()
+                      e.currentTarget.classList.remove('border-pink-500', 'bg-pink-50')
+                      const files = e.dataTransfer.files
+                      if (files?.length) await addBrandReferences(files)
+                    }}
+                    className="aspect-square rounded-xl border-2 border-dashed border-pink-300 flex flex-col items-center justify-center cursor-pointer hover:border-pink-500 hover:bg-pink-50 transition-all text-pink-400 gap-1">
                     <UploadCloud className="w-6 h-6" />
-                    <span className="text-[9px] font-black uppercase tracking-wider">Add Images</span>
+                    <span className="text-[9px] font-black uppercase tracking-wider">Add or Drop</span>
                     <span className="text-[8px] text-pink-300">{(formData.brandReferences || []).length}/15</span>
                     <input type="file" className="hidden" multiple accept="image/png,image/jpeg,image/webp,image/jpg" onChange={async (e) => {
-                      const files = e.target.files; if (!files) return
-                      const existing = formData.brandReferences || []
-                      const newRefs: import('@/stores/brand').BrandAsset[] = []
-                      for (let i = 0; i < Math.min(files.length, 15 - existing.length); i++) {
-                        const file = files[i]; if (!file.type.startsWith('image/')) continue
-                        const url = await new Promise<string>((resolve) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result as string); reader.readAsDataURL(file) })
-                        newRefs.push({ id: `ref-${Date.now()}-${i}-${Math.random().toString(36).slice(2,6)}`, name: file.name, type: file.type.includes('webp') ? 'webp' : 'image', url, size: file.size, addedAt: new Date().toISOString() })
-                      }
-                      updateForm('brandReferences', [...existing, ...newRefs]); e.target.value = ''
+                      if (e.target.files) await addBrandReferences(e.target.files)
+                      e.target.value = ''
                     }} />
                   </label>
                 </div>
