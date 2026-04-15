@@ -130,13 +130,15 @@ export function LoginForm() {
                   setIsLoading(true)
                   const email = 'test@example.com'
                   const password = 'password123'
-                  let res = await supabase.auth.signInWithPassword({ email, password })
-                  if (res.error) {
-                     res = await supabase.auth.signUp({ email, password })
-                     if (!res.error) res = await supabase.auth.signInWithPassword({ email, password })
+                  let loginRes = await supabase.auth.signInWithPassword({ email, password })
+                  if (loginRes.error) {
+                     const signUpRes = await supabase.auth.signUp({ email, password })
+                     if (!signUpRes.error) {
+                         loginRes = await supabase.auth.signInWithPassword({ email, password })
+                     }
                   }
-                  if (!res.error) window.location.href = '/dashboard'
-                  else setMessage({ type: 'error', text: res.error.message })
+                  if (!loginRes.error) window.location.href = '/dashboard'
+                  else setMessage({ type: 'error', text: loginRes.error.message })
                   setIsLoading(false)
                }}
                className="text-xs px-4 py-2 border border-slate-700 bg-slate-800 text-slate-300 rounded-md hover:bg-slate-700 transition-colors"

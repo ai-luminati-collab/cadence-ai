@@ -404,7 +404,7 @@ export default function CalendarPage() {
       const res = await chatWithConcept(activeBrand, activePost, conceptChatInput)
       if (res.success && res.data) {
         if (!res.data.approved) {
-           showToast(`🎬 Creative Director Pushback: ${res.data.feedback}`, 'warning')
+           showToast(`🎬 Creative Director Pushback: ${res.data.feedback}`, 'info')
            // DO NOT clear the input so the user can modify their prompt
            return
         }
@@ -736,7 +736,7 @@ export default function CalendarPage() {
                      <div className="space-y-4 pt-4 border-t border-[var(--color-border-default)]">
 
                         {/* Content Pillar / Bucket Mix */}
-                        {strategy.contentPillars && Object.keys(strategy.contentPillars).length > 0 && (
+                        {strategy?.contentPillars && Object.keys(strategy.contentPillars).length > 0 && (
                           <div className="space-y-4">
                              <div>
                                 <label className="text-[10px] font-black text-[var(--color-text-tertiary)] uppercase tracking-widest block mb-1 flex items-center gap-2">
@@ -768,7 +768,7 @@ export default function CalendarPage() {
                                  // Initialize selection state based on selected platforms if empty
                                  const activePlatforms = [...new Set(brandInfo?.platforms || [])]
                                  useEffect(() => {
-                                    if (selectedBuckets.length === 0 && strategy.contentPillars) {
+                                    if (selectedBuckets.length === 0 && strategy?.contentPillars) {
                                       const initial: BucketSelection[] = []
                                       activePlatforms.forEach(plat => {
                                         const platKey = Object.keys(strategy.contentPillars!).find(k => plat.includes(k) || k.includes(plat))
@@ -789,7 +789,7 @@ export default function CalendarPage() {
                                       })
                                       setSelectedBuckets(initial)
                                     }
-                                 }, [activePlatforms, strategy.contentPillars])
+                                 }, [activePlatforms, strategy?.contentPillars])
 
                                  return selectedBuckets.length > 0 ? (
                                    <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
