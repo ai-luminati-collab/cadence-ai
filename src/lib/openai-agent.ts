@@ -59,7 +59,7 @@ ${knowledgeContext}
      const startWorker = Date.now()
 
      const workerResponse = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: "gpt-5.4-mini",
         temperature: 0.7,
         messages: [
            { role: "system", content: systemInstructions },
@@ -88,7 +88,7 @@ ${knowledgeContext}
      const startBoss = Date.now()
 
       const bossResponse = await openai.chat.completions.create({
-         model: "gpt-4o",
+         model: "gpt-5.4",
          messages: [
             { role: "developer", content: `You are the Ruthless Creative Director at a top-tier culture-led agency. 
 Your job is to kill "Artificial Smog"—the generic, wordy, flowery marketing fluff that AI often generates.
@@ -149,7 +149,7 @@ ${knowledgeContext}
      const start = Date.now()
 
      const response = await openai.chat.completions.create({
-        model: "gpt-4o",
+        model: "gpt-5.4",
         temperature: 0.7,
         messages: [
            { role: "system", content: systemInstructions },
