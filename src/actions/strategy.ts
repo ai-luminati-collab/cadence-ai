@@ -1,7 +1,5 @@
 'use server'
 
-export const maxDuration = 300 // Set max timeout to 5 minutes to prevent Vercel 504 errors
-
 import { askExpertAgent } from '@/lib/openai-agent'
 import { BrandInfo } from '@/stores/brand'
 import { buildProductContext } from '@/lib/product-context'
