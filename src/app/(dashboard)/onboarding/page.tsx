@@ -346,7 +346,7 @@ export default function OnboardingPage() {
         
         // Poll for completion
         let attempts = 0
-        const maxAttempts = 60 // 60 * 10s = 10 min max
+        const maxAttempts = 120 // 120 * 10s = 20 min max
         while (attempts < maxAttempts) {
           if (!isResearchingRef.current) {
             if (timerRef.current) clearInterval(timerRef.current)

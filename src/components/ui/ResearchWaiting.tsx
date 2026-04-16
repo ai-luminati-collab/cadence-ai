@@ -234,11 +234,16 @@ interface ResearchWaitingProps {
 }
 
 export function ResearchWaiting({ brandName, elapsedSeconds, onCancel }: ResearchWaitingProps) {
-  // Randomly select one activity on mount
-  const [activity] = React.useState<'tour' | 'game'>(() => {
-    const activities = ['tour', 'game'] as const
-    return activities[Math.floor(Math.random() * activities.length)]
-  })
+  // Alternating between activities to ensure exact 50/50 distribution
+  const [activity, setActivity] = React.useState<'tour' | 'game'>('tour')
+
+  React.useEffect(() => {
+    // Determine strict 50/50 alternation so the user doesn't get bad RNG streaks
+    const lastActivity = localStorage.getItem('cadence_ai_last_activity')
+    const nextActivity = lastActivity === 'game' ? 'tour' : 'game'
+    setActivity(nextActivity)
+    localStorage.setItem('cadence_ai_last_activity', nextActivity)
+  }, [])
   const [tourSlide, setTourSlide] = React.useState(0)
 
   // Auto-rotate progress message
