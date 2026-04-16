@@ -1,6 +1,6 @@
 'use server'
 
-import { askExpertAgent } from '@/lib/openai-agent'
+import { askExpertAgent, askExpertAgentPremium } from '@/lib/openai-agent'
 import { BrandInfo, Strategy, ContentBucket } from '@/stores/brand'
 import { TopicalEvent } from './topicals'
 import { getAllKnowledgeSummary } from '@/lib/knowledge-loader'
@@ -209,9 +209,10 @@ export async function generateContentCalendar(
   `
 
   try {
-     // Skip Stage 2 (Boss Review) for Calendar Generation to avoid Vercel Serverless Function Timeouts (504).
-     // Generating 30+ JSON posts takes too long; the heavy "anti-smog" review can happen on a per-post basis later.
-     const res = await askExpertAgent(prompt, true) 
+     // Run the Calendar Generation directly on GPT-4o (Boss Model) using a single-pass execution.
+     // This guarantees elite reasoning for strategy distribution, but finishes in ~30s instead of 60s+ 
+     // (avoiding the two-stage Vercel serverless timeout).
+     const res = await askExpertAgentPremium(prompt) 
      if (!res.success) throw new Error("Agent failed execution.")
 
      // Remove markdown formatting from Assistant response if any

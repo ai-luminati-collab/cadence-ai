@@ -123,3 +123,51 @@ CRITICAL: Return ONLY the final output. No commentary.` },
      throw new Error(e.message || "Unknown OpenAI Agent error.")
   }
 }
+
+/**
+ * Single-Tier Premium Pipeline
+ * Uses ONLY gpt-4o for highest reasoning, bypassing the 2-stage review to save time on large outputs.
+ */
+export async function askExpertAgentPremium(prompt: string) {
+  if (!process.env.OPENAI_API_KEY) {
+     throw new Error("Missing OPENAI_API_KEY.")
+  }
+
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  const knowledgeContext = getKnowledgeBaseContext()
+
+  const systemInstructions = `You are Cadence, an elite top-tier marketing strategist. 
+You will be prompted to generate highly technical, data-driven content strategies and content calendars for brands.
+CRITICAL INSTRUCTION: You MUST use the following Digital Marketing Playbooks as your only ground truth to formulate your strategies. Do not guess algorithms—look them up in these playbooks strictly.
+
+### DIGITAL MARKETING PLAYBOOKS KNOWLEDGE BASE:
+${knowledgeContext}
+`
+
+  try {
+     console.log("💎 Running Premium Single-Pass with gpt-4o...")
+     const start = Date.now()
+
+     const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        temperature: 0.7,
+        messages: [
+           { role: "system", content: systemInstructions },
+           { role: "user", content: prompt }
+        ]
+     })
+
+     const finalOutput = response.choices[0]?.message?.content
+     const time = ((Date.now() - start) / 1000).toFixed(1)
+     console.log(`✅ Premium Single-Pass complete in ${time}s`)
+
+     if (finalOutput) {
+        return { success: true, data: finalOutput }
+     } else {
+        throw new Error("Premium returned empty output")
+     }
+  } catch (e: any) {
+     console.error("Premium Pipeline Failed:", e)
+     throw new Error(e.message || "Unknown OpenAI Premium error.")
+  }
+}
