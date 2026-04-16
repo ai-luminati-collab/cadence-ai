@@ -1,6 +1,8 @@
 import { Metadata } from 'next'
 import { LoginForm } from './components/login-form'
 
+export const dynamic = 'force-dynamic'
+
 export const metadata: Metadata = {
   title: 'Login - Cadence',
   description: 'Sign in to your AI-powered social media command center.',
