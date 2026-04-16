@@ -3,11 +3,14 @@
 import { askExpertAgent } from '@/lib/openai-agent'
 import { BrandInfo } from '@/stores/brand'
 import { buildProductContext } from '@/lib/product-context'
+import { getStrategicPatternLibrary } from '@/lib/knowledge-loader'
 
 export async function generateBrandStrategy(brandDetails: BrandInfo, isRefresh = false) {
   if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('YOUR_KEY_HERE')) {
     throw new Error("Missing valid OPENAI_API_KEY in environment variables.")
   }
+
+  const strategicPatternLibrary = await getStrategicPatternLibrary()
 
   const prompt = `
     System Prompt – Legendary Marketer (Universal Brand OS Architect)
@@ -65,6 +68,17 @@ export async function generateBrandStrategy(brandDetails: BrandInfo, isRefresh =
     ${brandDetails.aiKnowledgeBase.map((k, i) => `${i + 1}. ${k}`).join('\n')}
     ` : ''}
 
+    === STRATEGIC PATTERN VAULT ===
+    You have access to a master vault of 47 world-class strategic patterns. 
+    You MUST select exactly 2 Positioning patterns and 1 Narrative pattern that PERFECTLY match this brand's state (preconditions vs anti-conditions).
+    DO NOT choose generic patterns; choose high-leverage structural moves.
+    
+    [STRATEGIC PATTERN LIBRARY BEGIN]
+    ${strategicPatternLibrary}
+    [STRATEGIC PATTERN LIBRARY END]
+    ================================
+
+
     Creative Laws: Hook in <3s. Proof before puffery. No cultural clichés; only culturally resonant assets. Brand codes in every touchpoint. 
     Platform Rule: "Meta" is your primary vehicle for Instagram & Facebook combined. Strategy for Meta must lead with visual dominance and high-retention storytelling.
 
@@ -112,6 +126,15 @@ export async function generateBrandStrategy(brandDetails: BrandInfo, isRefresh =
             }
           ]
        },
+       "strategicPatterns": [
+         {
+           "id": "e.g., Pattern 01",
+           "name": "e.g., Polarization-as-Positioning",
+           "family": "e.g., Positioning Moves",
+           "description": "Justify WHY this pattern was chosen, why its preconditions are met, and exactly how the brand will execute it.",
+           "executionMarkers": ["Specify 3-4 precise formatting/stylistic/structural rules the AI copywriter must follow when executing this pattern."]
+         }
+       ],
        "lastRefreshed": "${new Date().toISOString()}"
     }
     

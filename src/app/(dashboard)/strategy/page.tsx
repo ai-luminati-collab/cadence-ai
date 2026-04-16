@@ -405,6 +405,43 @@ export default function StrategyPage() {
         </div>
       </div>
 
+      {/* ═══ SECTION 1.5: Strategic Pattern Intelligence ═══ */}
+      {strategy.strategicPatterns && strategy.strategicPatterns.length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-xs font-black text-emerald-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+            <Brain className="w-4 h-4" /> Pattern Intelligence Array
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {strategy.strategicPatterns.map((pattern, idx) => (
+              <div key={idx} className="bg-[var(--color-bg-base)] border border-[var(--color-border-default)] hover:border-emerald-500/50 rounded-3xl p-6 transition-all shadow-sm">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-500 flex items-center justify-center font-black text-lg">
+                    {idx + 1}
+                  </div>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-[var(--color-text-muted)] bg-[var(--color-bg-hover)] px-2 py-1 rounded-md">
+                    {pattern.family}
+                  </span>
+                </div>
+                <h3 className="text-lg font-black text-[var(--color-text-primary)] leading-tight mb-2">{pattern.id}: {pattern.name}</h3>
+                <p className="text-xs font-bold text-[var(--color-text-secondary)] italic mb-4">"{pattern.description}"</p>
+                
+                <div className="space-y-2 mt-auto">
+                  <p className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Execution Markers:</p>
+                  <ul className="space-y-2">
+                    {pattern.executionMarkers?.map((marker, mIdx) => (
+                      <li key={mIdx} className="flex items-start gap-2 text-[11px] text-[var(--color-text-primary)] font-medium leading-snug">
+                        <span className="w-1 h-1 rounded-full bg-emerald-400 mt-1.5 shrink-0" />
+                        <span>{marker}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ═══ SECTION 2: AI Evolution Hub (The Buffer) ═══ */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-12">
         <div className="space-y-4">

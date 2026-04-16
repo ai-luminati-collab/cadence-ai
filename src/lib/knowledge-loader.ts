@@ -143,6 +143,19 @@ export async function getAllKnowledgeSummary(): Promise<string> {
       parts.push(summary)
     } catch {}
   }
-  
   return parts.join('\n\n')
+}
+
+/**
+ * Get the full Strategic Pattern Library vault
+ * Contains 47 high-level positioning and narrative moves to force the AI out of generic responses.
+ */
+export async function getStrategicPatternLibrary(): Promise<string> {
+  const libPath = path.join(process.cwd(), 'src', 'lib', 'strategic_pattern_library.md')
+  try {
+    return fs.readFileSync(libPath, 'utf-8')
+  } catch (error) {
+    console.error('Failed to load Strategic Pattern Library:', error)
+    return ''
+  }
 }

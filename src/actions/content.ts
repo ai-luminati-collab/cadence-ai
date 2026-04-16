@@ -61,6 +61,29 @@ export async function generatePostContent(
     ${post.psychTrigger ? `Psychological Lever: ${post.psychTrigger}` : ''}
     ${post.usageStory ? `Usage Context: ${post.usageStory}` : ''}
 
+    ${(() => {
+      // Find the strategic pattern assigned to this post
+      // Adding any key so typescript doesn't complain of any properties on post that are missing or any custom ones
+      const patternId = (post as any).strategicPatternId;
+      if (patternId && strategy.strategicPatterns) {
+        const pattern = strategy.strategicPatterns.find(p => p.id === patternId || p.name.includes(patternId) || patternId.includes(p.id));
+        if (pattern) {
+          return `
+    === STRATEGIC PATTERN EXECUTION (MANDATORY GUARDRAIL) ===
+    This post is assigned to execute the following strategic move:
+    [PATTERN OVERRIDE]: ${pattern.name}
+    [STRATEGIC INTENT]: ${pattern.description}
+    
+    You MUST rigorously adhere to these Execution Markers when writing the copy/visuals. 
+    If you fail to follow these markers, the strategy is broken.
+    ${pattern.executionMarkers.map(m => ` - ${m}`).join('\n')}
+    =========================================================
+          `;
+        }
+      }
+      return '';
+    })()}
+
     ${productContext ? `
     === PRODUCT/SERVICE INTELLIGENCE (what this brand actually sells) ===
     ${productContext}

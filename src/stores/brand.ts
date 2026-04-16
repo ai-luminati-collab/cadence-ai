@@ -27,7 +27,18 @@ export interface Strategy {
   // Content Pillars & Buckets (per-platform)
   contentPillars?: Record<string, ContentPillar[]> // keyed by platform name
   
+  // Strategic Pattern Library
+  strategicPatterns?: StrategicPattern[]
+  
   lastRefreshed?: string // ISO string
+}
+
+export interface StrategicPattern {
+  id: string       // e.g., "Pattern 01"
+  name: string     // e.g., "Polarization-as-Positioning"
+  family: string   // e.g., "Positioning Moves"
+  description: string
+  executionMarkers: string[]
 }
 
 // ── Content Pillars & Buckets ──
@@ -202,6 +213,8 @@ export interface CalendarPost {
   // Per-Post Marketing Intelligence (AI-generated)
   psychTrigger?: string // e.g. "Attacks the Nostalgia lever by evoking childhood kitchen memories"
   usageStory?: string // e.g. "Shows the product in a morning chai ritual context"
+  strategicPatternId?: string // e.g. "Pattern 01"
+  strategicPatternName?: string // e.g. "Polarization-as-Positioning"
   
   // Story-Specific Fields (only for format: 'Story')
   storyMediaType?: 'video' | 'static' // Video clip or static image

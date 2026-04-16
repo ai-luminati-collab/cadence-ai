@@ -111,6 +111,18 @@ export async function generateContentCalendar(
     Content Pillars and their distribution weighting:
     ${strategy.coreNarratives}
 
+    ${strategy.strategicPatterns && strategy.strategicPatterns.length > 0 ? `
+    === MASTER STRATEGIC PATTERNS (CRITICAL INJECTION) ===
+    The brand OS requires you to execute the following specific strategic patterns across the calendar.
+    For each post you generate, you MUST align it with ONE of these patterns to avoid generic outputs.
+    ${strategy.strategicPatterns.map((p, i) => `
+    Pattern ${i+1}: [${p.id}] ${p.name}
+    Description: ${p.description}
+    Execution Markers: ${p.executionMarkers.join(', ')}
+    `).join('\n')}
+    ======================================================
+    ` : ''}
+
     ${customEvents || "None specified. Auto-detect relevant cultural holidays for the target demographic if applicable."}
 
     === LIVE MARKET TRACTION (CRITICAL) ===
@@ -183,6 +195,8 @@ export async function generateContentCalendar(
     "eventContext": (Optional) If this post is related to a custom event or a detected cultural holiday/trend on that day, name the event here. Otherwise leave it blank.
     "psychTrigger": A 1-sentence analysis of which psychological lever this post pulls (Status, Nostalgia, FOMO, Belonging, Survival, Curiosity, Scarcity) and HOW it does it. Be specific to THIS post's concept.
     "usageStory": A 1-sentence description of how/when/where the product or brand appears in the narrative of THIS specific post. Not generic — tied to the concept.
+    ${strategy.strategicPatterns && strategy.strategicPatterns.length > 0 ? `"strategicPatternId": The ID (e.g. 'Pattern 01') of the specific pattern from the MASTER STRATEGIC PATTERNS that this post executes.
+    "strategicPatternName": The name of the specific pattern chosen.` : ''}
 
     === STORY FORMAT RULES (CRITICAL FOR format: 'Story') ===
     When format is "Story", you MUST also include:
@@ -195,8 +209,9 @@ export async function generateContentCalendar(
   `
 
   try {
-     // Enable Stage 2 (Boss Review) for high-reasoning strategic oversight
-     const res = await askExpertAgent(prompt, false) 
+     // Skip Stage 2 (Boss Review) for Calendar Generation to avoid Vercel Serverless Function Timeouts (504).
+     // Generating 30+ JSON posts takes too long; the heavy "anti-smog" review can happen on a per-post basis later.
+     const res = await askExpertAgent(prompt, true) 
      if (!res.success) throw new Error("Agent failed execution.")
 
      // Remove markdown formatting from Assistant response if any
