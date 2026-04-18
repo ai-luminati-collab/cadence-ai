@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
+import { createClient } from '@supabase/supabase-js'
 
 // Cache the knowledge base in memory directly on the server
 let cachedKnowledgeBase: string | null = null
@@ -26,6 +27,84 @@ function getKnowledgeBaseContext() {
    }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// LIVE ALGORITHM STATE — Fetched from Supabase with TTL cache
+// ═══════════════════════════════════════════════════════════════
+let cachedAlgoState: string | null = null
+let algoStateFetchedAt: number = 0
+const ALGO_CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+
+async function getLiveAlgorithmState(): Promise<string> {
+   // Return from memory cache if fresh
+   if (cachedAlgoState && (Date.now() - algoStateFetchedAt) < ALGO_CACHE_TTL_MS) {
+      return cachedAlgoState
+   }
+
+   try {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      if (!supabaseUrl || !supabaseKey) return ''
+
+      const supabase = createClient(supabaseUrl, supabaseKey)
+      const { data, error } = await supabase
+         .from('global_algorithm_state')
+         .select('rules, last_updated')
+         .eq('id', 1)
+         .single()
+
+      if (error || !data || !data.rules || Object.keys(data.rules).length === 0) {
+         console.warn('⚠️ No live algorithm state found in Supabase. Skipping injection.')
+         cachedAlgoState = ''
+         algoStateFetchedAt = Date.now()
+         return ''
+      }
+
+      const rules = data.rules as any
+      const lastUpdated = data.last_updated
+         ? new Date(data.last_updated).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+         : 'Unknown'
+
+      // Format the rules into a clean, injectable prompt section
+      let formatted = `### 🔴 LIVE ALGORITHM INTELLIGENCE (Last Updated: ${lastUpdated})\n`
+      formatted += `Use these verified, data-backed rules to optimize content for current platform algorithms.\n\n`
+
+      if (rules.platforms) {
+         for (const [platform, platformRules] of Object.entries(rules.platforms)) {
+            const ruleList = platformRules as any[]
+            if (ruleList && ruleList.length > 0) {
+               formatted += `**${platform.toUpperCase()}:**\n`
+               for (const r of ruleList) {
+                  formatted += `- [${r.confidence?.toUpperCase() || 'MEDIUM'}] ${r.rule}\n`
+               }
+               formatted += '\n'
+            }
+         }
+      }
+
+      if (rules.cross_platform && rules.cross_platform.length > 0) {
+         formatted += `**CROSS-PLATFORM RULES:**\n`
+         for (const r of rules.cross_platform) {
+            formatted += `- [${r.confidence?.toUpperCase() || 'MEDIUM'}] ${r.rule}\n`
+         }
+         formatted += '\n'
+      }
+
+      if (rules.scout_summary) {
+         formatted += `**SCOUT SUMMARY:** ${rules.scout_summary}\n`
+      }
+
+      cachedAlgoState = formatted
+      algoStateFetchedAt = Date.now()
+      console.log(`📡 Live Algorithm State loaded (${formatted.length} chars, updated ${lastUpdated})`)
+      return formatted
+   } catch (e) {
+      console.error('Failed to fetch live algorithm state:', e)
+      cachedAlgoState = ''
+      algoStateFetchedAt = Date.now()
+      return ''
+   }
+}
+
 /**
  * Two-Tier AI Pipeline: Generator → Verifier
  * 
@@ -42,10 +121,13 @@ export async function askExpertAgent(prompt: string, skipReview = false) {
 
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   const knowledgeContext = getKnowledgeBaseContext()
+  const liveAlgoState = await getLiveAlgorithmState()
 
   const systemInstructions = `You are Cadence, an elite top-tier marketing strategist. 
 You will be prompted to generate highly technical, data-driven content strategies and content calendars for brands.
 CRITICAL INSTRUCTION: You MUST use the following Digital Marketing Playbooks as your only ground truth to formulate your strategies. Do not guess algorithms—look them up in these playbooks strictly.
+
+${liveAlgoState}
 
 ### DIGITAL MARKETING PLAYBOOKS KNOWLEDGE BASE:
 ${knowledgeContext}
@@ -135,10 +217,13 @@ export async function askExpertAgentPremium(prompt: string) {
 
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   const knowledgeContext = getKnowledgeBaseContext()
+  const liveAlgoState = await getLiveAlgorithmState()
 
   const systemInstructions = `You are Cadence, an elite top-tier marketing strategist. 
 You will be prompted to generate highly technical, data-driven content strategies and content calendars for brands.
 CRITICAL INSTRUCTION: You MUST use the following Digital Marketing Playbooks as your only ground truth to formulate your strategies. Do not guess algorithms—look them up in these playbooks strictly.
+
+${liveAlgoState}
 
 ### DIGITAL MARKETING PLAYBOOKS KNOWLEDGE BASE:
 ${knowledgeContext}
