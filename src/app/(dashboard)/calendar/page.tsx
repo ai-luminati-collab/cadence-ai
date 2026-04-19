@@ -1498,7 +1498,7 @@ export default function CalendarPage() {
                   </div>
 
                   {/* A/B Variant Selector */}
-                  {activeDraft && (draftHistory[activePost.id]?.length || 0) > 0 && (
+                  {activeDraft && Array.isArray(draftHistory[activePost.id]) && draftHistory[activePost.id].length > 0 && (
                      <div className="flex items-center gap-3 p-3 bg-amber-500/5 border border-amber-500/15 rounded-2xl">
                         <span className="text-[9px] font-black text-amber-400 uppercase tracking-widest whitespace-nowrap">Variants</span>
                         <div className="flex items-center gap-1.5 flex-1 overflow-x-auto scrollbar-hide">
@@ -1724,7 +1724,8 @@ export default function CalendarPage() {
                              {(['product', 'scene', 'general'] as const).map(cat => {
                                 const labels = { product: 'Product / Character', scene: 'Scene / Aesthetic', general: 'General' }
                                 const colors = { product: 'pink', scene: 'purple', general: 'blue' }
-                                const postRefs = (activeDraft.postReferences || []).filter(r => r.category === cat || (cat === 'scene' && r.category === 'aesthetic'))
+                                const safeRefs = Array.isArray(activeDraft.postReferences) ? activeDraft.postReferences : []
+                                const postRefs = safeRefs.filter(r => r.category === cat || (cat === 'scene' && r.category === 'aesthetic'))
                                 return (
                                    <div key={cat} className={`rounded-xl border border-[var(--color-border-default)] p-3 bg-[var(--color-bg-surface)] space-y-2`}>
                                       <span className={`text-[9px] font-black uppercase tracking-widest text-${colors[cat]}-400`}>{labels[cat]}</span>
@@ -1733,7 +1734,8 @@ export default function CalendarPage() {
                                             <div key={ref.id} className="relative w-12 h-12 rounded-lg overflow-hidden border border-[var(--color-border-default)] group">
                                                <img src={ref.url} className="w-full h-full object-cover" alt={ref.name} />
                                                <button onClick={() => {
-                                                  const updated = (activeDraft.postReferences || []).filter(r => r.id !== ref.id)
+                                                  const safeRefsForDelete = Array.isArray(activeDraft.postReferences) ? activeDraft.postReferences : []
+                                                  const updated = safeRefsForDelete.filter(r => r.id !== ref.id)
                                                   saveDraft(selectedPostId!, { ...activeDraft, postReferences: updated })
                                                }} className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                                   <X className="w-3 h-3 text-white" />
@@ -1795,7 +1797,7 @@ export default function CalendarPage() {
                              </div>
                           </div>
 
-                          {activeDraft.generatedVisuals && activeDraft.generatedVisuals.length > 0 && (
+                          {Array.isArray(activeDraft.generatedVisuals) && activeDraft.generatedVisuals.length > 0 && (
                              <div className="space-y-4">
                                 <div className={`grid gap-4 ${activeDraft.generatedVisuals.length === 1 ? 'grid-cols-1 max-w-lg mx-auto' : 'grid-cols-2 lg:grid-cols-3'}`}>
                                    {activeDraft.generatedVisuals.map((imgUrl, i) => (
