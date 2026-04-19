@@ -1544,7 +1544,7 @@ export default function CalendarPage() {
                     <div className="space-y-8 animate-in fade-in zoom-in-95 duration-700">
                        
                        {/* Hook Selection (if hooks are available) */}
-                       {activeDraft.hooks && activeDraft.hooks.length > 0 && (
+                       {Array.isArray(activeDraft.hooks) && activeDraft.hooks.length > 0 && (
                           <div className="space-y-3">
                              <label className="text-xs font-black text-amber-500 uppercase tracking-[0.15em] flex items-center gap-2">
                                 <Target className="w-4 h-4" /> Select Your Scroll-Stop Hook
@@ -1690,7 +1690,7 @@ export default function CalendarPage() {
                        })()}
 
                        {/* Legacy hooks fallback */}
-                       {(!activeDraft.platformFields || Object.keys(activeDraft.platformFields).length === 0) && activeDraft.hooks?.length > 0 && (
+                       {(!activeDraft.platformFields || Object.keys(activeDraft.platformFields).length === 0) && Array.isArray(activeDraft.hooks) && activeDraft.hooks.length > 0 && (
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                              <div className="space-y-4">
                                 <label className="text-xs font-black text-amber-500 uppercase tracking-widest flex items-center gap-2">
