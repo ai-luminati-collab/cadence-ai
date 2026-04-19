@@ -266,7 +266,8 @@ export default function CalendarPage() {
        const post = pendingPosts[i]
        setBatchProgress(i + 1)
        try {
-          const res = await generatePostContent(brandInfo, strategy, post)
+          const safeBrand = { name: brandInfo.name, industry: brandInfo.industry, primaryAudiences: brandInfo.primaryAudiences, tone: brandInfo.tone, communicationStyle: brandInfo.communicationStyle } as any
+          const res = await generatePostContent(safeBrand, strategy, post)
           if (res.success && res.data) {
              saveDraft(post.id, res.data)
           }
@@ -285,7 +286,15 @@ export default function CalendarPage() {
       // Import dynamically to avoid top-level issues if needed, or assume it's imported
       // Actually we must import it at the top. We will mock the import call for now.
       const { generateTopicals } = await import('@/actions/topicals')
-      const res = await generateTopicals(brandInfo, selectedMonths)
+      
+      // Sanitize payload to avoid 413 Payload Too Large on Vercel due to huge extracted PDF texts in BrandInfo
+      const safeBrandInfo = {
+        name: brandInfo.name,
+        industry: brandInfo.industry,
+        primaryAudiences: brandInfo.primaryAudiences || []
+      } as any
+
+      const res = await generateTopicals(safeBrandInfo, selectedMonths)
       
       if (res.success && res.data) {
          setTopicals(res.data.map(t => ({ ...t, selected: true, suggestedFormat: 'Static' })))
@@ -325,16 +334,17 @@ export default function CalendarPage() {
        const { synthesizeMarketTraction } = await import('@/actions/traction')
        
        // Just pull top competitors from strategy if any exist, or leave blank to rely on Industry
-       const competitors = strategy.competitors || []
-       const tractionRes = await synthesizeMarketTraction(activeBrand, { competitors })
+        const safeBrand = { name: brandInfo.name, industry: brandInfo.industry, website: brandInfo.website } as any
+        const tractionRes = await synthesizeMarketTraction(safeBrand, { competitors })
        let tractionData = ""
        if (tractionRes.success && tractionRes.data) {
            tractionData = tractionRes.data
        }
 
        setLoadingStatus("Matrix Mapping Strategies...")
+       const safeBrandCal = { name: brandInfo.name, industry: brandInfo.industry, primaryAudiences: brandInfo.primaryAudiences, tone: brandInfo.tone } as any
        const res = await generateContentCalendar(
-          brandInfo, 
+          safeBrandCal, 
           strategy, 
           startStr,
           endStr,
@@ -377,7 +387,8 @@ export default function CalendarPage() {
     setIsGeneratingContent(true)
     try {
        const existingDraft = contentDrafts[postId]
-       const res = await generatePostContent(brandInfo, strategy, targetPost, toneFingerprint)
+       const safeBrand = { name: brandInfo.name, industry: brandInfo.industry, primaryAudiences: brandInfo.primaryAudiences, tone: brandInfo.tone, communicationStyle: brandInfo.communicationStyle } as any
+       const res = await generatePostContent(safeBrand, strategy, targetPost, toneFingerprint)
        if (res.success && res.data) {
           // A/B Memory: if there's an existing draft, push it to history before saving new one
           if (existingDraft) {
