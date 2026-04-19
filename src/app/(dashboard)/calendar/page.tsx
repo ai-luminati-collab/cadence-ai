@@ -115,6 +115,32 @@ export default function CalendarPage() {
   const [bucketMode, setBucketMode] = useState<'ai' | 'manual'>('ai')
   const [selectedBuckets, setSelectedBuckets] = useState<BucketSelection[]>([])
 
+  useEffect(() => {
+    if (selectedBuckets.length === 0 && strategy?.contentPillars) {
+      const activePlatforms = [...new Set(brandInfo?.platforms || [])]
+      const initial: BucketSelection[] = []
+      activePlatforms.forEach(plat => {
+        const platKey = Object.keys(strategy.contentPillars!).find(k => plat.includes(k) || k.includes(plat))
+        if (platKey && strategy.contentPillars![platKey]) {
+          strategy.contentPillars![platKey].forEach(pillar => {
+            pillar.buckets.forEach(bucket => {
+              initial.push({
+                bucketId: bucket.id,
+                bucketName: bucket.name,
+                pillarName: pillar.name,
+                min: bucket.suggestedMinPerMonth,
+                max: bucket.suggestedMaxPerMonth,
+                count: Math.ceil((bucket.suggestedMinPerMonth + bucket.suggestedMaxPerMonth) / 2)
+              })
+            })
+          })
+        }
+      })
+      setSelectedBuckets(initial)
+    }
+  }, [brandInfo?.platforms, strategy?.contentPillars, selectedBuckets.length])
+
+
   // Helper: update content matrix, optionally mirroring to all months
   const updateMatrix = (month: string, platform: string, format: string, value: number) => {
     const updated = { ...contentMatrix }
@@ -764,34 +790,7 @@ export default function CalendarPage() {
                              </div>
 
                              <div className="space-y-3 bg-[var(--color-bg-surface)] p-4 rounded-xl border border-[var(--color-border-subtle)]">
-                               {(() => {
-                                 // Initialize selection state based on selected platforms if empty
-                                 const activePlatforms = [...new Set(brandInfo?.platforms || [])]
-                                 useEffect(() => {
-                                    if (selectedBuckets.length === 0 && strategy?.contentPillars) {
-                                      const initial: BucketSelection[] = []
-                                      activePlatforms.forEach(plat => {
-                                        const platKey = Object.keys(strategy.contentPillars!).find(k => plat.includes(k) || k.includes(plat))
-                                        if (platKey && strategy.contentPillars![platKey]) {
-                                          strategy.contentPillars![platKey].forEach(pillar => {
-                                            pillar.buckets.forEach(bucket => {
-                                              initial.push({
-                                                bucketId: bucket.id,
-                                                bucketName: bucket.name,
-                                                pillarName: pillar.name,
-                                                min: bucket.suggestedMinPerMonth,
-                                                max: bucket.suggestedMaxPerMonth,
-                                                count: Math.ceil((bucket.suggestedMinPerMonth + bucket.suggestedMaxPerMonth) / 2)
-                                              })
-                                            })
-                                          })
-                                        }
-                                      })
-                                      setSelectedBuckets(initial)
-                                    }
-                                 }, [activePlatforms, strategy?.contentPillars])
-
-                                 return selectedBuckets.length > 0 ? (
+                                {selectedBuckets.length > 0 ? (
                                    <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
                                      {selectedBuckets.map((b, idx) => (
                                        <div key={idx} className="flex items-center justify-between py-2 border-b border-[var(--color-border-subtle)] last:border-0">
@@ -829,11 +828,13 @@ export default function CalendarPage() {
                                      ))}
                                    </div>
                                  ) : (
-                                   <div className="py-4 text-center">
-                                     <p className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-widest">Loading buckets from Brand OS...</p>
+                                   <div className="py-6 text-center">
+                                     <div className="w-10 h-10 rounded-xl bg-[var(--color-bg-hover)] flex items-center justify-center mx-auto mb-3">
+                                       <Activity className="w-5 h-5 text-[var(--color-text-muted)]" />
+                                     </div>
+                                     <p className="text-xs font-medium text-[var(--color-text-secondary)]">No buckets active.</p>
                                    </div>
-                                 )
-                               })()}
+                                 )}
                              </div>
                           </div>
                         )}
