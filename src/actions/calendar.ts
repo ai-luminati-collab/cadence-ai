@@ -1,4 +1,5 @@
 'use server'
+export const maxDuration = 60;
 
 import { askExpertAgent, askExpertAgentPremium } from '@/lib/openai-agent'
 import { BrandInfo, Strategy, ContentBucket } from '@/stores/brand'

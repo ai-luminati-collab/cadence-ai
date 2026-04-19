@@ -1,4 +1,5 @@
 'use server'
+export const maxDuration = 60;
 
 import { askExpertAgent } from '@/lib/openai-agent'
 import { BrandInfo } from '@/stores/brand'
@@ -16,12 +17,12 @@ export async function generateTopicals(
   brandDetails: BrandInfo,
   targetMonths: string[] // e.g. ["2026-04", "2026-05"]
 ): Promise<{ success: boolean; data?: TopicalEvent[]; error?: string }> {
-  
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error("Missing valid OPENAI_API_KEY in environment variables.")
-  }
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      return { success: false, error: "Missing valid OPENAI_API_KEY in environment variables." }
+    }
 
-  const prompt = `You are a viral social media strategist.
+    const prompt = `You are a viral social media strategist.
 Your task is to identify key cultural moments, holidays, trending topical dates, or industry-specific occurrences that this brand MUST capitalize on for the requested months.
 
 Brand: ${brandDetails.name}
@@ -44,9 +45,8 @@ Return STRICTLY as a JSON array of objects, with no markdown:
 ]
 `
 
-  try {
     const res = await askExpertAgent(prompt, true) // skipReview for speed
-    if (!res.success) throw new Error("Topicals agent failed execution.")
+    if (!res.success) return { success: false, error: "Topicals agent failed execution." }
 
     let resultText = res.data.replace(/```json/g, '').replace(/```/g, '').trim()
     const parsed = JSON.parse(resultText)

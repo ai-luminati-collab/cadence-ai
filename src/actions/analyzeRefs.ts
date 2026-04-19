@@ -1,4 +1,5 @@
 'use server'
+export const maxDuration = 60;
 
 import { GoogleGenAI } from '@google/genai'
 import { BrandAsset, VisualGuardrail } from '@/stores/brand'

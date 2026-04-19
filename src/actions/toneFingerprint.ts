@@ -1,4 +1,5 @@
 'use server'
+export const maxDuration = 60;
 
 import { askExpertAgent } from '@/lib/openai-agent'
 import { BrandInfo, ContentDraft, ToneFingerprint } from '@/stores/brand'
