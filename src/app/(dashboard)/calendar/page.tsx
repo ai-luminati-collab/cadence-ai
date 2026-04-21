@@ -17,6 +17,9 @@ import { exportToPDF } from '@/lib/exportPdf'
 import { getContentSpec } from '@/lib/platform-specs'
 import { generateStaticVisual, generateCarouselVisuals, generateStoryVisual, type ImageModel } from '@/actions/imageGen'
 import { classifyEdit, classifyCopilotInstruction, detectPattern, getPatternKey, type EditEvent, type DetectedPattern } from '@/lib/edit-pattern-detector'
+import { VisualReferences } from '@/components/ui/VisualReferences'
+import { findVisualReferences, researchReferences } from '@/actions/references'
+import type { VisualRef } from '@/stores/brand'
 
 const PLATFORM_ICONS: Record<string, { icon: any, color: string }> = {
   "Meta (Instagram & Facebook)": { icon: Infinity, color: "text-blue-400" },
@@ -195,6 +198,9 @@ export default function CalendarPage() {
   const [feedAesthetic, setFeedAesthetic] = useState<import('@/stores/brand').FeedAesthetic>(null)
   const [tenureReferences, setTenureReferences] = useState<import('@/stores/brand').BrandAsset[]>([])
 
+  // ── Visual References State ──
+  const [isSearchingRefs, setIsSearchingRefs] = useState(false)
+
   // ── Pattern Detection State ──
   const [activePattern, setActivePattern] = useState<DetectedPattern | null>(null)
   const editEvents = activeBrand?.editEvents || []
@@ -274,6 +280,104 @@ export default function CalendarPage() {
     if (pattern && !dismissedPatterns.includes(getPatternKey(pattern))) {
       setActivePattern(pattern)
     }
+  }
+
+  // ── Visual Reference Handlers ──
+  const getActivePost = () => selectedPostId ? calendar?.find(p => p.id === selectedPostId) : null
+
+  const handleFindReferences = async () => {
+    const post = getActivePost()
+    if (!post || !brandInfo || isSearchingRefs) return
+    setIsSearchingRefs(true)
+    try {
+      const result = await findVisualReferences(post, brandInfo, strategy || null)
+      if (result.success && result.references) {
+        const visualRefs: VisualRef[] = result.references.map(r => ({
+          ...r,
+          status: 'suggested' as const
+        }))
+        updateCalendarPost(post.id, {
+          visualReferences: visualRefs,
+          referenceSearchQuery: result.searchQuery
+        })
+        showToast(`Found ${visualRefs.length} visual references`, 'success')
+      } else {
+        showToast(result.error || 'No references found', 'error')
+      }
+    } catch (e: any) {
+      showToast('Reference search failed', 'error')
+    } finally {
+      setIsSearchingRefs(false)
+    }
+  }
+
+  const handleResearchReferences = async (query: string) => {
+    const post = getActivePost()
+    if (!post || !brandInfo || isSearchingRefs) return
+    setIsSearchingRefs(true)
+    try {
+      const result = await researchReferences(query, post, brandInfo)
+      if (result.success && result.references) {
+        const visualRefs: VisualRef[] = result.references.map(r => ({
+          ...r,
+          status: 'suggested' as const
+        }))
+        const existing = (post.visualReferences || []).filter(r => r.status === 'approved' || r.status === 'custom')
+        updateCalendarPost(post.id, {
+          visualReferences: [...existing, ...visualRefs],
+          referenceSearchQuery: query
+        })
+        showToast(`Found ${visualRefs.length} new references`, 'success')
+      }
+    } catch {
+      showToast('Re-search failed', 'error')
+    } finally {
+      setIsSearchingRefs(false)
+    }
+  }
+
+  const handleApproveReference = (refId: string) => {
+    const post = getActivePost()
+    if (!post) return
+    const refs = (post.visualReferences || []).map(r => ({
+      ...r,
+      status: r.id === refId ? 'approved' as const : r.status === 'approved' ? 'suggested' as const : r.status
+    }))
+    updateCalendarPost(post.id, {
+      visualReferences: refs,
+      activeReferenceId: refId
+    })
+    showToast('Reference approved ✓', 'success')
+  }
+
+  const handleRemoveReference = (refId: string) => {
+    const post = getActivePost()
+    if (!post) return
+    const refs = (post.visualReferences || []).filter(r => r.id !== refId)
+    const newActiveId = post.activeReferenceId === refId ? null : post.activeReferenceId
+    updateCalendarPost(post.id, {
+      visualReferences: refs,
+      activeReferenceId: newActiveId
+    })
+  }
+
+  const handleAddCustomReference = (url: string) => {
+    const post = getActivePost()
+    if (!post) return
+    const newRef: VisualRef = {
+      id: `custom-${Date.now()}`,
+      title: 'Custom Reference',
+      imageUrl: url,
+      sourceUrl: url,
+      sourcePlatform: url.includes('pinterest') ? 'pinterest' : url.includes('instagram') ? 'instagram' : url.includes('behance') ? 'behance' : 'other',
+      description: 'Added by user',
+      status: 'custom'
+    }
+    const existing = post.visualReferences || []
+    updateCalendarPost(post.id, {
+      visualReferences: [...existing, newRef]
+    })
+    showToast('Custom reference added', 'success')
   }
 
   // Navigate between posts in modal
@@ -1597,6 +1701,19 @@ export default function CalendarPage() {
                         </div>
                      )}
                   </div>
+               </div>
+
+               {/* ── SECTION 1.5: Visual Reference ── */}
+               <div className="p-8 rounded-[32px] bg-cyan-500/3 border border-cyan-500/10">
+                 <VisualReferences
+                   post={activePost}
+                   onFindReferences={handleFindReferences}
+                   onResearch={handleResearchReferences}
+                   onApproveReference={handleApproveReference}
+                   onRemoveReference={handleRemoveReference}
+                   onAddCustomReference={handleAddCustomReference}
+                   isSearching={isSearchingRefs}
+                 />
                </div>
 
                {/* ── SECTION 2: AI Creative Execution ── */}

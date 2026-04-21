@@ -246,6 +246,21 @@ export interface CalendarPost {
   storyMediaType?: 'video' | 'static' // Video clip or static image
   storyFeature?: string // Instagram feature: Poll, Quiz, Question Box, Countdown, Emoji Slider, Link, Music, Mention
   storyCopy?: string // The actual text overlay copy for the story frame
+
+  // Visual References (AI-found moodboard links)
+  visualReferences?: VisualRef[]
+  activeReferenceId?: string | null  // which reference is approved/selected
+  referenceSearchQuery?: string      // the query used (for re-searching)
+}
+
+export interface VisualRef {
+  id: string
+  title: string
+  imageUrl: string       // direct image URL
+  sourceUrl: string      // Pinterest/Insta page link
+  sourcePlatform: string // 'pinterest' | 'instagram' | 'behance' | 'dribbble' | 'other'
+  description: string    // why this reference matches
+  status: 'suggested' | 'approved' | 'custom'  // custom = user pasted their own
 }
 
 export interface ContentDraft {

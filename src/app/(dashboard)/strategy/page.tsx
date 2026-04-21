@@ -400,7 +400,7 @@ export default function StrategyPage() {
             <span className="text-xs font-black uppercase tracking-widest text-[var(--color-text-muted)]">Core Strategy Statement</span>
           </div>
           <h2 className="text-2xl md:text-3xl font-black leading-tight max-w-4xl italic">
-            "{strategy.oneLineStrategy}"
+            "{strategy.oneLineStrategy || 'Strategy generating...'}"
           </h2>
         </div>
       </div>
@@ -542,7 +542,7 @@ export default function StrategyPage() {
                    try {
                      const { analyzeToneFingerprint } = await import('@/actions/toneFingerprint')
                      setIsRefreshing(true)
-                     const res = await analyzeToneFingerprint(brandInfo, activeBrand.contentDrafts || {})
+                     const res = await analyzeToneFingerprint(brandInfo, activeBrand?.contentDrafts || {})
                      if (res.success && res.data) {
                        setToneFingerprint(res.data)
                        alert('Voice DNA fingerprint computed!')
@@ -551,7 +551,7 @@ export default function StrategyPage() {
                      }
                    } catch (e) { alert('Fingerprint failed.') } finally { setIsRefreshing(false) }
                 }}
-                disabled={isRefreshing || Object.keys(activeBrand.contentDrafts || {}).length < 3}
+                disabled={isRefreshing || Object.keys(activeBrand?.contentDrafts || {}).length < 3}
                 className="flex-1 py-2 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest bg-purple-50 text-purple-600 border border-purple-200 hover:bg-purple-100 transition-all disabled:opacity-40"
               >
                 🧬 Analyze Voice DNA
@@ -560,34 +560,34 @@ export default function StrategyPage() {
          </div>
 
          {/* Tone Fingerprint Display */}
-         {activeBrand.toneFingerprint && (
+         {activeBrand?.toneFingerprint && (
             <div className="space-y-4 mt-6">
               <div className="flex items-center gap-2 mb-2">
                  <Brain className="w-4 h-4 text-purple-600" />
                  <h2 className="text-xs font-black text-[var(--color-text-muted)] uppercase tracking-widest">Voice DNA Fingerprint</h2>
-                 <span className="text-[8px] text-[var(--color-text-muted)] font-medium">({activeBrand.toneFingerprint.sampleSize} drafts analyzed)</span>
+                 <span className="text-[8px] text-[var(--color-text-muted)] font-medium">({activeBrand?.toneFingerprint?.sampleSize || 0} drafts analyzed)</span>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                  <div className="bg-purple-50 border border-purple-100 rounded-2xl p-4 text-center">
-                    <p className="text-2xl font-black text-purple-600">{activeBrand.toneFingerprint.punchiness}<span className="text-sm text-purple-300">/10</span></p>
+                    <p className="text-2xl font-black text-purple-600">{activeBrand?.toneFingerprint?.punchiness ?? 0}<span className="text-sm text-purple-300">/10</span></p>
                     <p className="text-[9px] font-black text-purple-400 uppercase tracking-widest mt-1">Punchiness</p>
                  </div>
                  <div className="bg-sky-50 border border-sky-100 rounded-2xl p-4 text-center">
-                    <p className="text-2xl font-black text-sky-600">{activeBrand.toneFingerprint.avgSentenceLength.toFixed(0)}</p>
+                    <p className="text-2xl font-black text-sky-600">{(activeBrand?.toneFingerprint?.avgSentenceLength ?? 0).toFixed(0)}</p>
                     <p className="text-[9px] font-black text-sky-400 uppercase tracking-widest mt-1">Avg Words/Sentence</p>
                  </div>
                  <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 text-center">
-                    <p className="text-2xl font-black text-amber-600">{(activeBrand.toneFingerprint.hinglishRatio * 100).toFixed(0)}%</p>
+                    <p className="text-2xl font-black text-amber-600">{((activeBrand?.toneFingerprint?.hinglishRatio ?? 0) * 100).toFixed(0)}%</p>
                     <p className="text-[9px] font-black text-amber-400 uppercase tracking-widest mt-1">Hinglish Ratio</p>
                  </div>
                  <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 text-center">
-                    <p className="text-2xl font-black text-emerald-600">{activeBrand.toneFingerprint.emojiFrequency.toFixed(1)}</p>
+                    <p className="text-2xl font-black text-emerald-600">{(activeBrand?.toneFingerprint?.emojiFrequency ?? 0).toFixed(1)}</p>
                     <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mt-1">Emojis/100 Words</p>
                  </div>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                  <span className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Signature Words:</span>
-                 {activeBrand.toneFingerprint.topWords.map((w, i) => (
+                 {(activeBrand?.toneFingerprint?.topWords || []).map((w, i) => (
                     <span key={i} className="text-[10px] font-bold text-purple-500 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-100">{w}</span>
                  ))}
               </div>
@@ -685,7 +685,7 @@ export default function StrategyPage() {
                       <h3 className="text-lg font-black text-[var(--color-text-primary)] uppercase tracking-tight flex-1">{platform}</h3>
                       {strategy.contentPillars?.[platform] && (
                         <span className="text-[10px] font-black text-[var(--color-accent-400)] bg-[var(--color-accent-900)]/20 px-3 py-1 rounded-full uppercase tracking-widest">
-                          {strategy.contentPillars[platform].length} Pillars · {strategy.contentPillars[platform].reduce((s, p) => s + p.buckets.length, 0)} Buckets
+                          {(strategy.contentPillars?.[platform] || []).length} Pillars · {(strategy.contentPillars?.[platform] || []).reduce((s, p) => s + (p.buckets?.length || 0), 0)} Buckets
                         </span>
                       )}
                       <ChevronDown className="w-4 h-4 text-[var(--color-text-muted)] group-hover:text-[var(--color-accent-400)] transition-colors" />
@@ -693,19 +693,19 @@ export default function StrategyPage() {
                    <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
                          <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest mb-1 block">Strategic Role</label>
-                         <p className="text-sm font-bold text-[var(--color-text-secondary)] leading-snug">{playbook.role}</p>
+                         <p className="text-sm font-bold text-[var(--color-text-secondary)] leading-snug">{playbook?.role || '—'}</p>
                       </div>
                       <div>
                          <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest mb-1 block">Format Mechanics</label>
-                         <p className="text-sm font-bold text-[var(--color-text-secondary)] leading-snug">{playbook.mechanics}</p>
+                         <p className="text-sm font-bold text-[var(--color-text-secondary)] leading-snug">{playbook?.mechanics || '—'}</p>
                       </div>
                       <div>
                          <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest mb-1 block">Tone Modifier</label>
-                         <p className="text-sm font-bold text-[var(--color-text-secondary)] leading-snug">{playbook.toneModifier}</p>
+                         <p className="text-sm font-bold text-[var(--color-text-secondary)] leading-snug">{playbook?.toneModifier || '—'}</p>
                       </div>
                       <div>
                          <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest mb-1 block">Cadence</label>
-                         <p className="text-sm font-bold text-[var(--color-text-secondary)] leading-snug">{playbook.cadence}</p>
+                         <p className="text-sm font-bold text-[var(--color-text-secondary)] leading-snug">{playbook?.cadence || '—'}</p>
                       </div>
                    </div>
                 </button>
@@ -723,9 +723,9 @@ export default function StrategyPage() {
         {selectedPlatform && strategy.platformPlaybooks?.[selectedPlatform] && (() => {
           const playbook = strategy.platformPlaybooks[selectedPlatform]
           const pillars = strategy.contentPillars?.[selectedPlatform] || []
-          const totalBuckets = pillars.reduce((s, p) => s + p.buckets.length, 0)
-          const totalMinPosts = pillars.reduce((s, p) => s + p.buckets.reduce((bs, b) => bs + b.suggestedMinPerMonth, 0), 0)
-          const totalMaxPosts = pillars.reduce((s, p) => s + p.buckets.reduce((bs, b) => bs + b.suggestedMaxPerMonth, 0), 0)
+          const totalBuckets = pillars.reduce((s, p) => s + (p.buckets?.length || 0), 0)
+          const totalMinPosts = pillars.reduce((s, p) => s + (p.buckets || []).reduce((bs, b) => bs + (b.suggestedMinPerMonth || 0), 0), 0)
+          const totalMaxPosts = pillars.reduce((s, p) => s + (p.buckets || []).reduce((bs, b) => bs + (b.suggestedMaxPerMonth || 0), 0), 0)
           const platConfig = PLATFORM_ICONS[selectedPlatform] || PLATFORM_ICONS.default
           const PlatIcon = platConfig.icon
 
@@ -761,10 +761,10 @@ export default function StrategyPage() {
                 {/* Playbook Summary */}
                 <div className="px-8 py-4 bg-[var(--color-bg-surface)] border-b border-[var(--color-border-subtle)]">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Role</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook.role}</p></div>
-                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Mechanics</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook.mechanics}</p></div>
-                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Tone</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook.toneModifier}</p></div>
-                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Cadence</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook.cadence}</p></div>
+                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Role</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook?.role || '—'}</p></div>
+                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Mechanics</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook?.mechanics || '—'}</p></div>
+                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Tone</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook?.toneModifier || '—'}</p></div>
+                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Cadence</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook?.cadence || '—'}</p></div>
                   </div>
                 </div>
 
@@ -785,7 +785,7 @@ export default function StrategyPage() {
                             <input value={pillar.name} onChange={(e) => { const u = [...pillars]; u[pIdx] = { ...u[pIdx], name: e.target.value }; setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: u } }) }} className="text-sm font-black text-[var(--color-text-primary)] bg-transparent outline-none uppercase tracking-wider w-full" />
                             <input value={pillar.description} onChange={(e) => { const u = [...pillars]; u[pIdx] = { ...u[pIdx], description: e.target.value }; setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: u } }) }} className="text-[10px] text-[var(--color-text-muted)] bg-transparent outline-none w-full mt-0.5" />
                           </div>
-                          <span className="text-[10px] font-bold text-[var(--color-text-muted)]">{pillar.buckets.length} buckets</span>
+                          <span className="text-[10px] font-bold text-[var(--color-text-muted)]">{(pillar.buckets || []).length} buckets</span>
                           <button onClick={() => { setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: pillars.filter((_, i) => i !== pIdx) } }) }} className="p-1.5 rounded-lg text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/10 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
                         <div className="divide-y divide-[var(--color-border-subtle)]">
