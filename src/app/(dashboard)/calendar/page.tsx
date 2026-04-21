@@ -334,7 +334,8 @@ export default function CalendarPage() {
        const { synthesizeMarketTraction } = await import('@/actions/traction')
        
        // Just pull top competitors from strategy if any exist, or leave blank to rely on Industry
-        const safeBrand = { name: brandInfo.name, industry: brandInfo.industry, website: brandInfo.website } as any
+        const competitors = (brandInfo.competitors || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+        const safeBrand = { brandInfo: { name: brandInfo.name, industry: brandInfo.industry, website: brandInfo.website, primaryAudiences: brandInfo.primaryAudiences } } as any
         const tractionRes = await synthesizeMarketTraction(safeBrand, { competitors })
        let tractionData = ""
        if (tractionRes.success && tractionRes.data) {
