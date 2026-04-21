@@ -683,9 +683,9 @@ export default function StrategyPage() {
                          })()}
                       </div>
                       <h3 className="text-lg font-black text-[var(--color-text-primary)] uppercase tracking-tight flex-1">{platform}</h3>
-                      {strategy.contentPillars?.[platform] && (
+                      {Array.isArray(strategy.contentPillars?.[platform]) && strategy.contentPillars[platform].length > 0 && (
                         <span className="text-[10px] font-black text-[var(--color-accent-400)] bg-[var(--color-accent-900)]/20 px-3 py-1 rounded-full uppercase tracking-widest">
-                          {(strategy.contentPillars?.[platform] || []).length} Pillars · {(strategy.contentPillars?.[platform] || []).reduce((s, p) => s + (p.buckets?.length || 0), 0)} Buckets
+                          {strategy.contentPillars[platform].length} Pillars · {strategy.contentPillars[platform].reduce((s: number, p: any) => s + (Array.isArray(p.buckets) ? p.buckets.length : 0), 0)} Buckets
                         </span>
                       )}
                       <ChevronDown className="w-4 h-4 text-[var(--color-text-muted)] group-hover:text-[var(--color-accent-400)] transition-colors" />
@@ -722,10 +722,10 @@ export default function StrategyPage() {
         {/* ═══ PLATFORM PILLAR/BUCKET POPUP MODAL ═══ */}
         {selectedPlatform && strategy.platformPlaybooks?.[selectedPlatform] && (() => {
           const playbook = strategy.platformPlaybooks[selectedPlatform]
-          const pillars = strategy.contentPillars?.[selectedPlatform] || []
-          const totalBuckets = pillars.reduce((s, p) => s + (p.buckets?.length || 0), 0)
-          const totalMinPosts = pillars.reduce((s, p) => s + (p.buckets || []).reduce((bs, b) => bs + (b.suggestedMinPerMonth || 0), 0), 0)
-          const totalMaxPosts = pillars.reduce((s, p) => s + (p.buckets || []).reduce((bs, b) => bs + (b.suggestedMaxPerMonth || 0), 0), 0)
+          const pillars = Array.isArray(strategy.contentPillars?.[selectedPlatform]) ? strategy.contentPillars[selectedPlatform] : []
+          const totalBuckets = pillars.reduce((s: number, p: any) => s + (Array.isArray(p.buckets) ? p.buckets.length : 0), 0)
+          const totalMinPosts = pillars.reduce((s: number, p: any) => s + (Array.isArray(p.buckets) ? p.buckets : []).reduce((bs: number, b: any) => bs + (b.suggestedMinPerMonth || 0), 0), 0)
+          const totalMaxPosts = pillars.reduce((s: number, p: any) => s + (Array.isArray(p.buckets) ? p.buckets : []).reduce((bs: number, b: any) => bs + (b.suggestedMaxPerMonth || 0), 0), 0)
           const platConfig = PLATFORM_ICONS[selectedPlatform] || PLATFORM_ICONS.default
           const PlatIcon = platConfig.icon
 
@@ -785,11 +785,11 @@ export default function StrategyPage() {
                             <input value={pillar.name} onChange={(e) => { const u = [...pillars]; u[pIdx] = { ...u[pIdx], name: e.target.value }; setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: u } }) }} className="text-sm font-black text-[var(--color-text-primary)] bg-transparent outline-none uppercase tracking-wider w-full" />
                             <input value={pillar.description} onChange={(e) => { const u = [...pillars]; u[pIdx] = { ...u[pIdx], description: e.target.value }; setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: u } }) }} className="text-[10px] text-[var(--color-text-muted)] bg-transparent outline-none w-full mt-0.5" />
                           </div>
-                          <span className="text-[10px] font-bold text-[var(--color-text-muted)]">{(pillar.buckets || []).length} buckets</span>
+                          <span className="text-[10px] font-bold text-[var(--color-text-muted)]">{(Array.isArray(pillar.buckets) ? pillar.buckets : []).length} buckets</span>
                           <button onClick={() => { setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: pillars.filter((_, i) => i !== pIdx) } }) }} className="p-1.5 rounded-lg text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/10 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
                         <div className="divide-y divide-[var(--color-border-subtle)]">
-                          {pillar.buckets.map((bucket, bIdx) => (
+                          {(Array.isArray(pillar.buckets) ? pillar.buckets : []).map((bucket, bIdx) => (
                             <div key={bucket.id} className="px-5 py-3 flex items-center gap-4 hover:bg-[var(--color-bg-hover)] transition-colors group">
                               <div className="w-5 h-5 rounded-md bg-[var(--color-bg-hover)] flex items-center justify-center text-[9px] font-black text-[var(--color-text-muted)]">{pIdx + 1}.{bIdx + 1}</div>
                               <div className="flex-1 min-w-0">
