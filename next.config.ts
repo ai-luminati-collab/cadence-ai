@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
     },
   },
   // Increase timeout for AI-heavy server actions  
-  serverExternalPackages: ['openai'],
+  serverExternalPackages: ['openai', '@anthropic-ai/sdk'],
 };
 
 export default nextConfig;

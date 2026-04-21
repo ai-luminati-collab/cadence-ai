@@ -1,5 +1,4 @@
 'use server'
-export const maxDuration = 60;
 
 import { GoogleGenAI } from '@google/genai'
 import OpenAI from 'openai'
