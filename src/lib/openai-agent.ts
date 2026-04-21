@@ -195,7 +195,7 @@ ${liveAlgoState}
      const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
      const bossResponse = await anthropic.messages.create({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-opus-4-20250514",
         max_tokens: 16000,
         system: `You are the Ruthless Creative Director at a top-tier culture-led agency.
 A junior strategist (GPT) just generated a draft. Your job is to tear it apart and rebuild it better.
@@ -293,7 +293,7 @@ ${liveAlgoState}
      const start = Date.now()
 
      const response = await anthropic.messages.create({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-opus-4-20250514",
         max_tokens: 16000,
         system: systemInstructions,
         messages: [
