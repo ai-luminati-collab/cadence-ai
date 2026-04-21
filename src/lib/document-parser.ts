@@ -1,5 +1,3 @@
-'use server'
-
 import { GoogleGenAI, createPartFromBase64 } from '@google/genai'
 import { parseOffice, OfficeParserAST, OfficeContentNode } from 'officeparser'
 import JSZip from 'jszip'

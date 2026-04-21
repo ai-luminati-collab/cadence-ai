@@ -1,5 +1,3 @@
-'use server'
-
 import { BrandInfo, ContentDraft } from '@/stores/brand'
 
 /**
