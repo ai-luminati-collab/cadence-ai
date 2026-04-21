@@ -41,7 +41,7 @@ Format: "Insight: [Your 1 sentence realization]"
 Output ONLY this format, nothing else.`
 
   try {
-    const res = await askExpertAgent(prompt, true) // skipReview for speed (use 4.1-mini)
+    const res = await askExpertAgent(prompt, true, '') // skipReview + skip KB
     if (!res.success) throw new Error("Epiphany agent failed")
 
     const text = res.data.trim()

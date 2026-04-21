@@ -6,6 +6,7 @@ import { BrandInfo, Strategy, ContentBucket } from '@/stores/brand'
 import { TopicalEvent } from './topicals'
 import { getAllKnowledgeSummary } from '@/lib/knowledge-loader'
 import { buildProductContext } from '@/lib/product-context'
+import { buildBrandOSContext } from '@/lib/brand-os-context'
 
 export interface BucketSelection {
   bucketId: string
@@ -61,8 +62,9 @@ export async function generateContentCalendar(
     matrixBlueprint = lines.join('\n')
   }
 
-  // Load cross-platform intelligence for calendar planning
-  const knowledgeSummary = await getAllKnowledgeSummary()
+  // Use compiled Brand OS if available (saves ~15K tokens vs loading full KB)
+  const brandOSContext = buildBrandOSContext(strategy.compiledBrandOS)
+  const knowledgeSummary = brandOSContext ? '' : await getAllKnowledgeSummary()
 
   const prompt = `
     You are an elite Social Media Manager and Content Strategist.
@@ -167,7 +169,15 @@ export async function generateContentCalendar(
     5. NEVER USE EM DASHES: Do NOT use the "---" or "--" or "—" character anywhere in any field. Use commas, periods, or short dashes (-) instead.
     6. STORIES CAN SHARE DAYS: Stories (format: 'Story') are ephemeral and SHOULD be scheduled on the same day as regular posts (Static, Carousel, Reel) on the same platform. A day can have both a Reel AND a Story for Meta. Treat Stories as supplementary, not competing.
 
-    ${knowledgeSummary ? `
+    ${brandOSContext ? `
+    === COMPILED BRAND OS (FOLLOW STRICTLY — THIS IS YOUR GROUND TRUTH) ===
+    The following intelligence was compiled specifically for this brand during strategy generation.
+    It contains platform rules, format blueprints, anti-patterns, category context, and quality standards.
+    Use this to correctly assign platforms, formats, and content strategies:
+
+    ${brandOSContext}
+    ====================================================================
+    ` : knowledgeSummary ? `
     === MASTER CONTENT INTELLIGENCE (RESEARCH-BACKED — USE FOR CALENDAR PLANNING) ===
     Use this intelligence to correctly assign platforms, formats, and content strategies:
     ${knowledgeSummary}
@@ -213,7 +223,8 @@ export async function generateContentCalendar(
      // Run the Calendar Generation directly on GPT-4o (Boss Model) using a single-pass execution.
      // This guarantees elite reasoning for strategy distribution, but finishes in ~30s instead of 60s+ 
      // (avoiding the two-stage Vercel serverless timeout).
-     const res = await askExpertAgentPremium(prompt) 
+     // When Brand OS exists, pass '' to suppress legacy KB loading
+     const res = await askExpertAgentPremium(prompt, brandOSContext ? '' : undefined)
      if (!res.success) throw new Error("Agent failed execution.")
 
      // Remove markdown formatting from Assistant response if any

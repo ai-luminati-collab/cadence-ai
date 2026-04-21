@@ -153,7 +153,7 @@ export async function hijackTrend(
    `;
 
    try {
-      const res = await askExpertAgent(prompt, true); // skipReview — real-time trend speed
+      const res = await askExpertAgent(prompt, true, ''); // skipReview + skip KB
       if (!res.success) throw new Error("Agent failed execution.");
 
       let resultText = res.data.replace(/```json/g, '').replace(/```/g, '').trim();

@@ -45,7 +45,7 @@ Return STRICTLY as a JSON array of 3 strings (no markdown):
 (Iteration seed to ensure uniqueness: ${Math.random()})`
 
   try {
-    const res = await askExpertAgent(prompt, true) // Fast mode
+    const res = await askExpertAgent(prompt, true, '') // Fast mode + skip KB
     if (!res.success) throw new Error("Suggest agent failed.")
 
     let resultText = res.data.replace(/```json/g, '').replace(/```/g, '').trim()

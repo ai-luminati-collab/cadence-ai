@@ -26,7 +26,7 @@ export async function rerollConcept(brandData: BrandData, post: CalendarPost): P
   `
 
   try {
-    const res = await askExpertAgent(prompt, true)
+    const res = await askExpertAgent(prompt, true, '')
     if (!res.success || !res.data) throw new Error("Failed to generate new concept")
     
     // Clean any wrapping quotes or markdown the model might add
@@ -96,7 +96,7 @@ export async function chatWithConcept(brandData: BrandData, post: CalendarPost, 
   `
 
   try {
-    const res = await askExpertAgent(prompt)
+    const res = await askExpertAgent(prompt, false, '')
     if (!res.success || !res.data) throw new Error("Chat failed")
     
     // Clean potential markdown blocks

@@ -6,7 +6,7 @@ export interface Strategy {
   targetAudience: string
   persona: string
   coreNarratives: string
-  
+
   // Legendary Marketer Extensions
   oneLineStrategy?: string
   strategyGrid?: string
@@ -16,21 +16,47 @@ export interface Strategy {
   riskOpportunityMap?: string
   competitorAnalysis?: string
   psychographicTriggers?: string
-  
+
   // Platform Native Strategies
   platformPlaybooks?: Record<string, PlatformPlaybook>
-  
+
   // Content Distribution
   pillars?: { title: string; val: string }[]
   competitors?: string[]
-  
+
   // Content Pillars & Buckets (per-platform)
   contentPillars?: Record<string, ContentPillar[]> // keyed by platform name
-  
+
   // Strategic Pattern Library
   strategicPatterns?: StrategicPattern[]
-  
+
+  // Compiled Brand OS — knowledge base baked in during strategy generation
+  // so downstream calls (content, calendar, concepts) never load the full KB again.
+  compiledBrandOS?: CompiledBrandOS
+
   lastRefreshed?: string // ISO string
+}
+
+export interface CompiledBrandOS {
+  platformRules: Record<string, string>        // platform name → algorithm rules for THIS brand's platforms only
+  categoryContext: {
+    categoryName: string
+    clichesToAvoid: string[]
+    whitespaceOpportunities: string[]
+    differentiationSignals: string[]
+  }
+  formatBlueprints: Record<string, string>     // format name → structural pattern (hook/body/CTA anatomy)
+  antiPatternChecklist: Array<{
+    pattern: string
+    detectionMarker: string
+    fix: string
+  }>
+  qualityRules: {
+    bannedWords: string[]
+    categoryCliches: string[]
+    bossChecklist: string[]
+  }
+  compiledAt: string                            // ISO timestamp
 }
 
 export interface StrategicPattern {
@@ -116,10 +142,10 @@ export interface BrandInfo {
   industry: string
   industryCustom?: string
   website?: string
-  
+
   // AI Copilot Mode
   aiResearchMode?: boolean
-  
+
   // Strict Questionnaire Matrices
   primaryAudiences: string[]
   secondaryAudience?: string
@@ -128,26 +154,26 @@ export interface BrandInfo {
   primaryGoals: string[]
   tone: string[] // e.g. ["Playful", "Disruptive"]
   communicationStyle: string
-  
+
   // Strategic Depth
   platforms: string[] // e.g., ["Instagram", "LinkedIn", "Twitter", "TikTok"]
   contentFrequency?: Record<string, string> // Map platform to frequency text
   competitors?: string
   usp?: string
-  
+
   // Visual DNA
   primaryColorHex?: string
   secondaryColorHex?: string
   additionalColors?: string[]
   referenceUrls: string[]
   brandAssets?: string[] // Stores Supabase asset URLs
-  
+
   extraNotes?: string
-  
+
   // The Dynamic Brain
   aiKnowledgeBase?: string[]
   pendingInsights?: string[]
-  
+
   // Product/Service Intelligence
   coreProducts?: string[] // Anti-hallucination anchor: exact product/menu names the AI MUST use
   brandType?: 'product' | 'service' | 'hybrid'
@@ -155,17 +181,17 @@ export interface BrandInfo {
   serviceOfferings?: ServiceEntry[]
   productPageUrls?: string[]       // Links the AI can scrape for product features
   uploadedDocs?: UploadedDoc[]     // Pitch decks, PDFs, feature lists
-  
+
   // Brand Media Library
   brandReferences?: BrandAsset[]   // Moodboards, reference images, PPTs, docs
   productImages?: BrandAsset[]     // Product photos mapped to productCatalog
   brandLogos?: BrandAsset[]        // Logo files (PNG, SVG, WebP)
-  
+
   // Typography
   headingFont?: string             // e.g. "Playfair Display", "Montserrat Bold"
   bodyFont?: string                // e.g. "Inter", "Open Sans"
   fontSpecimenImages?: BrandAsset[] // Screenshots/samples of the brand fonts in use
-  
+
   // Visual Guardrails (AI-derived + user-edited)
   visualGuardrails?: VisualGuardrail[]
 }
@@ -205,17 +231,17 @@ export interface CalendarPost {
   pillar: string
   topic: string
   eventContext?: string // e.g., "Diwali Special", "Product Launch"
-  
+
   // Content Bucket Tracking
   bucketId?: string     // links to ContentBucket.id
   bucketName?: string   // e.g. "Hero Product Close-Ups"
-  
+
   // Per-Post Marketing Intelligence (AI-generated)
   psychTrigger?: string // e.g. "Attacks the Nostalgia lever by evoking childhood kitchen memories"
   usageStory?: string // e.g. "Shows the product in a morning chai ritual context"
   strategicPatternId?: string // e.g. "Pattern 01"
   strategicPatternName?: string // e.g. "Polarization-as-Positioning"
-  
+
   // Story-Specific Fields (only for format: 'Story')
   storyMediaType?: 'video' | 'static' // Video clip or static image
   storyFeature?: string // Instagram feature: Poll, Quiz, Question Box, Countdown, Emoji Slider, Link, Music, Mention
@@ -228,16 +254,16 @@ export interface ContentDraft {
   caption: string
   visualDescription: string
   hashtags: string
-  
+
   // Platform-native fields (keyed by DraftField.key from platform-specs.ts)
   platformFields?: Record<string, string>
-  
+
   // Visual generation
   generatedVisuals?: string[] // base64 image URLs
-  
+
   // Hook selection
   approvedHookIndex?: number // which hook the user selected
-  
+
   // Per-post reference images (categorized)
   postReferences?: PostReference[]
 }
@@ -268,6 +294,22 @@ export interface BrandData {
   toneFingerprint: ToneFingerprint | null
   lastKbAudit: string | null // ISO date of last knowledge base audit
   generationEvents: GenerationEvent[] // AI evolution: tracks every generation + user action
+  editEvents: EditEventRecord[]       // Pattern detection: tracks every content edit
+  dismissedPatterns: string[]          // Pattern keys the user dismissed (don't nag again)
+}
+
+// Stored version of EditEvent (matches lib/edit-pattern-detector.ts but avoids circular import)
+export interface EditEventRecord {
+  id: string
+  postId: string
+  platform: string
+  format: string
+  fieldName: string
+  editType: string
+  originalText: string
+  editedText: string
+  timestamp: string
+  similarity: number
 }
 
 interface BrandState {
@@ -283,7 +325,7 @@ interface BrandState {
   setBrandInfo: (info: BrandInfo) => void
   setStrategy: (strategy: Strategy) => void
   completeOnboarding: () => void
-  
+
   setCalendar: (posts: CalendarPost[]) => void
   updateCalendarPost: (postId: string, postData: Partial<CalendarPost>) => void
   saveDraft: (postId: string, draft: ContentDraft) => void
@@ -298,10 +340,14 @@ interface BrandState {
   rejectInsight: (index: number) => void
   setToneFingerprint: (fp: ToneFingerprint) => void
   setLastKbAudit: (date: string) => void
-  
+
   // AI Evolution Tracking
   trackGeneration: (event: GenerationEvent) => void
   logEditDistance: (postId: string, score: number) => void
+
+  // Edit Pattern Detection
+  addEditEvent: (event: EditEventRecord) => void
+  dismissPattern: (patternKey: string) => void
 }
 
 const initialBrandData = (): Omit<BrandData, 'id'> => ({
@@ -316,7 +362,9 @@ const initialBrandData = (): Omit<BrandData, 'id'> => ({
   researchData: null,
   toneFingerprint: null,
   lastKbAudit: null,
-  generationEvents: []
+  generationEvents: [],
+  editEvents: [],
+  dismissedPatterns: []
 })
 
 export const useBrandStore = create<BrandState>()(
@@ -329,16 +377,16 @@ export const useBrandStore = create<BrandState>()(
         brands: { ...state.brands, [id]: { id, ...initialBrandData(), brandInfo: info } },
         activeBrandId: id
       })),
-      
+
       setActiveBrand: (id) => set({ activeBrandId: id }),
       clearActiveBrand: () => set({ activeBrandId: null }),
-      
+
       deleteBrand: (id) => set((state) => {
         const newBrands = { ...state.brands }
         delete newBrands[id]
-        return { 
-           brands: newBrands, 
-           activeBrandId: state.activeBrandId === id ? (Object.keys(newBrands)[0] || null) : state.activeBrandId 
+        return {
+          brands: newBrands,
+          activeBrandId: state.activeBrandId === id ? (Object.keys(newBrands)[0] || null) : state.activeBrandId
         }
       }),
 
@@ -356,10 +404,10 @@ export const useBrandStore = create<BrandState>()(
         if (!state.activeBrandId) return state;
         const brand = state.brands[state.activeBrandId]
         if (!brand || !brand.brandInfo) return state;
-        
+
         const currentKb = brand.brandInfo.aiKnowledgeBase || []
         const newKb = [fact, ...currentKb].slice(0, 20)
-        
+
         return {
           brands: {
             ...state.brands,
@@ -375,7 +423,7 @@ export const useBrandStore = create<BrandState>()(
         if (!state.activeBrandId) return state;
         const brand = state.brands[state.activeBrandId]
         if (!brand || !brand.brandInfo) return state;
-        
+
         const currentPending = brand.brandInfo.pendingInsights || []
         return {
           brands: {
@@ -392,20 +440,20 @@ export const useBrandStore = create<BrandState>()(
         if (!state.activeBrandId) return state;
         const brand = state.brands[state.activeBrandId]
         if (!brand || !brand.brandInfo) return state;
-        
+
         const pending = [...(brand.brandInfo.pendingInsights || [])]
         const insight = pending.splice(index, 1)[0]
         if (!insight) return state;
 
         const currentKb = brand.brandInfo.aiKnowledgeBase || []
-        
+
         return {
           brands: {
             ...state.brands,
             [state.activeBrandId]: {
               ...brand,
-              brandInfo: { 
-                ...brand.brandInfo, 
+              brandInfo: {
+                ...brand.brandInfo,
                 pendingInsights: pending,
                 aiKnowledgeBase: [insight, ...currentKb].slice(0, 20)
               }
@@ -418,10 +466,10 @@ export const useBrandStore = create<BrandState>()(
         if (!state.activeBrandId) return state;
         const brand = state.brands[state.activeBrandId]
         if (!brand || !brand.brandInfo) return state;
-        
+
         const pending = [...(brand.brandInfo.pendingInsights || [])]
         pending.splice(index, 1)
-        
+
         return {
           brands: {
             ...state.brands,
@@ -452,7 +500,7 @@ export const useBrandStore = create<BrandState>()(
           }
         }
       }),
-      
+
       setCalendar: (posts) => set((state) => {
         if (!state.activeBrandId) return state;
         return {
@@ -484,9 +532,9 @@ export const useBrandStore = create<BrandState>()(
         return {
           brands: {
             ...state.brands,
-            [state.activeBrandId]: { 
-               ...brand, 
-               contentDrafts: { ...brand.contentDrafts, [postId]: draft } 
+            [state.activeBrandId]: {
+              ...brand,
+              contentDrafts: { ...brand.contentDrafts, [postId]: draft }
             }
           }
         }
@@ -496,8 +544,8 @@ export const useBrandStore = create<BrandState>()(
         if (!state.activeBrandId) return state;
         return {
           brands: {
-             ...state.brands,
-             [state.activeBrandId]: { id: state.activeBrandId, ...initialBrandData() }
+            ...state.brands,
+            [state.activeBrandId]: { id: state.activeBrandId, ...initialBrandData() }
           }
         }
       }),
@@ -537,19 +585,19 @@ export const useBrandStore = create<BrandState>()(
         const brand = state.brands[state.activeBrandId]
         const currentDraft = brand.contentDrafts[postId]
         const currentHistory = brand.draftHistory?.[postId] || []
-        
+
         return {
           brands: {
             ...state.brands,
-            [state.activeBrandId]: { 
-               ...brand, 
-               contentDrafts: { ...brand.contentDrafts, [postId]: draft },
-               draftHistory: { 
-                 ...brand.draftHistory, 
-                 [postId]: currentDraft 
-                   ? [...currentHistory, currentDraft].slice(-5) // Keep last 5 variants max
-                   : currentHistory 
-               }
+            [state.activeBrandId]: {
+              ...brand,
+              contentDrafts: { ...brand.contentDrafts, [postId]: draft },
+              draftHistory: {
+                ...brand.draftHistory,
+                [postId]: currentDraft
+                  ? [...currentHistory, currentDraft].slice(-5) // Keep last 5 variants max
+                  : currentHistory
+              }
             }
           }
         }
@@ -602,6 +650,32 @@ export const useBrandStore = create<BrandState>()(
           brands: {
             ...state.brands,
             [state.activeBrandId]: { ...brand, generationEvents: events }
+          }
+        }
+      }),
+
+      // ── Edit Pattern Detection ──
+      addEditEvent: (event) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        // Keep last 200 edit events per brand
+        const events = [...(brand.editEvents || []), event].slice(-200)
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: { ...brand, editEvents: events }
+          }
+        }
+      }),
+
+      dismissPattern: (patternKey) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        const dismissed = [...(brand.dismissedPatterns || []), patternKey]
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: { ...brand, dismissedPatterns: dismissed }
           }
         }
       }),

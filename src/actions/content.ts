@@ -6,6 +6,7 @@ import { BrandInfo, Strategy, CalendarPost, ToneFingerprint } from '@/stores/bra
 import { getContentSpec, getAIInstructions } from '@/lib/platform-specs'
 import { getFullKnowledgeContext } from '@/lib/knowledge-loader'
 import { buildProductContext } from '@/lib/product-context'
+import { buildBrandOSContext } from '@/lib/brand-os-context'
 
 export async function generatePostContent(
   brandInfo: BrandInfo, 
@@ -28,9 +29,11 @@ export async function generatePostContent(
   const spec = getContentSpec(post.platform, post.format)
   const platformInstructions = getAIInstructions(post.platform, post.format)
   
-  // Load research-backed knowledge base for this specific platform+format
-  const knowledgeContext = await getFullKnowledgeContext(post.platform, post.format)
-  
+  // Use compiled Brand OS if available (saves ~15K tokens vs loading full KB)
+  // Falls back to legacy knowledge-loader for brands without a compiled Brand OS
+  const brandOSContext = buildBrandOSContext(strategy.compiledBrandOS)
+  const knowledgeContext = brandOSContext ? '' : await getFullKnowledgeContext(post.platform, post.format)
+
   // Build product/service intelligence context
   const productContext = buildProductContext(
     brandInfo.brandType,
@@ -107,11 +110,19 @@ export async function generatePostContent(
     ${platformInstructions}
     ========================================
 
-    ${knowledgeContext ? `
+    ${brandOSContext ? `
+    === COMPILED BRAND OS (FOLLOW STRICTLY — THIS IS YOUR GROUND TRUTH) ===
+    The following intelligence was compiled specifically for this brand during strategy generation.
+    It contains platform rules, format blueprints, anti-patterns, and quality standards.
+    You MUST follow these rules when generating content:
+
+    ${brandOSContext}
+    ====================================================================
+    ` : knowledgeContext ? `
     === MASTER KNOWLEDGE BASE (RESEARCH-BACKED — FOLLOW STRICTLY) ===
     The following is deeply researched, data-backed intelligence about this specific platform and format.
     You MUST follow these rules, research findings, and best practices when generating content:
-    
+
     ${knowledgeContext}
     ================================================================
     ` : ''}
@@ -156,7 +167,8 @@ export async function generatePostContent(
 
   try {
      // Enable Stage 2 (Boss Review) for deep quality oversight
-     const res = await askExpertAgent(prompt, false) 
+     // When Brand OS exists, pass '' to suppress legacy KB loading (~15K token savings)
+     const res = await askExpertAgent(prompt, false, brandOSContext ? '' : undefined)
      if (!res.success) throw new Error("Agent failed execution.")
 
      let resultText = res.data.replace(/```json/g, '').replace(/```/g, '').trim()

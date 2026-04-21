@@ -127,7 +127,7 @@ Return STRICTLY as JSON (no markdown):
 }`
 
   try {
-    const res = await askExpertAgent(prompt, true) // Fast mode — extraction doesn't need boss review
+    const res = await askExpertAgent(prompt, true, '') // Fast mode + skip KB — extraction doesn't need it
     if (!res.success || !res.data) throw new Error("Extraction model failed.")
     
     const cleaned = res.data.replace(/```json/g, '').replace(/```/g, '').trim()

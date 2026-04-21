@@ -12,9 +12,11 @@ import { generateContentCalendar, type BucketSelection } from '@/actions/calenda
 import { generatePostContent } from '@/actions/content'
 import { useRouter } from 'next/navigation'
 import { Toast, useToast } from '@/components/ui/Toast'
+import { PatternPrompt } from '@/components/ui/PatternPrompt'
 import { exportToPDF } from '@/lib/exportPdf'
 import { getContentSpec } from '@/lib/platform-specs'
 import { generateStaticVisual, generateCarouselVisuals, generateStoryVisual, type ImageModel } from '@/actions/imageGen'
+import { classifyEdit, classifyCopilotInstruction, detectPattern, getPatternKey, type EditEvent, type DetectedPattern } from '@/lib/edit-pattern-detector'
 
 const PLATFORM_ICONS: Record<string, { icon: any, color: string }> = {
   "Meta (Instagram & Facebook)": { icon: Infinity, color: "text-blue-400" },
@@ -69,7 +71,7 @@ const PLATFORM_FORMATS: Record<string, { label: string; value: string }[]> = {
 
 export default function CalendarPage() {
   const router = useRouter()
-  const { brands, activeBrandId, setCalendar, updateCalendarPost, saveDraft, saveDraftVariant, addPendingInsight } = useBrandStore()
+  const { brands, activeBrandId, setCalendar, updateCalendarPost, saveDraft, saveDraftVariant, addPendingInsight, addAiKnowledge, addEditEvent, dismissPattern } = useBrandStore()
   const activeBrand = activeBrandId ? brands[activeBrandId] : null
   
   const brandInfo = activeBrand?.brandInfo
@@ -192,6 +194,87 @@ export default function CalendarPage() {
   // Feed Aesthetic & Tenure References
   const [feedAesthetic, setFeedAesthetic] = useState<import('@/stores/brand').FeedAesthetic>(null)
   const [tenureReferences, setTenureReferences] = useState<import('@/stores/brand').BrandAsset[]>([])
+
+  // ── Pattern Detection State ──
+  const [activePattern, setActivePattern] = useState<DetectedPattern | null>(null)
+  const editEvents = activeBrand?.editEvents || []
+  const dismissedPatterns = activeBrand?.dismissedPatterns || []
+
+  // Track an edit, classify it, and check for patterns
+  const trackAndDetectPattern = (
+    postId: string,
+    platform: string,
+    format: string,
+    fieldName: string,
+    originalText: string,
+    editedText: string
+  ) => {
+    // Classify the edit type using heuristics (no AI call)
+    const editType = classifyEdit(originalText, editedText, fieldName)
+    if (editType === 'unclassified') return // Skip noise
+
+    // Calculate word overlap
+    const set1 = new Set(originalText.toLowerCase().split(/\s+/))
+    const set2 = new Set(editedText.toLowerCase().split(/\s+/))
+    const intersection = [...set1].filter(w => set2.has(w)).length
+    const union = new Set([...set1, ...set2]).size
+    const similarity = union === 0 ? 1 : intersection / union
+
+    const event = {
+      id: `edit-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      postId,
+      platform,
+      format,
+      fieldName,
+      editType,
+      originalText: originalText.slice(0, 200), // Trim for storage
+      editedText: editedText.slice(0, 200),
+      timestamp: new Date().toISOString(),
+      similarity
+    }
+
+    addEditEvent(event)
+
+    // Check for patterns with the new event included
+    const allEvents = [...editEvents, event]
+    const pattern = detectPattern(allEvents as EditEvent[], platform)
+
+    if (pattern && !dismissedPatterns.includes(getPatternKey(pattern))) {
+      setActivePattern(pattern)
+    }
+  }
+
+  // Track copilot instructions as edit signals
+  const trackCopilotInstruction = (
+    postId: string,
+    platform: string,
+    format: string,
+    instruction: string
+  ) => {
+    const editType = classifyCopilotInstruction(instruction)
+
+    const event = {
+      id: `copilot-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      postId,
+      platform,
+      format,
+      fieldName: 'copilot_instruction',
+      editType,
+      originalText: '',
+      editedText: instruction.slice(0, 200),
+      timestamp: new Date().toISOString(),
+      similarity: 0
+    }
+
+    addEditEvent(event)
+
+    const allEvents = [...editEvents, event]
+    const pattern = detectPattern(allEvents as EditEvent[], platform)
+
+    if (pattern && !dismissedPatterns.includes(getPatternKey(pattern))) {
+      setActivePattern(pattern)
+    }
+  }
 
   // Navigate between posts in modal
   const navigatePost = (dir: 'next' | 'prev') => {
@@ -411,9 +494,12 @@ export default function CalendarPage() {
   const handleChatSubmit = async () => {
     const activePost = selectedPostId ? calendar?.find(p => p.id === selectedPostId) : null
     const activeDraft = selectedPostId ? contentDrafts[selectedPostId] : null
-    
+
     if (!activeDraft || !activePost || !chatInput.trim()) return
-    
+
+    // Track the copilot instruction for pattern detection
+    trackCopilotInstruction(activePost.id, activePost.platform, activePost.format, chatInput)
+
     setIsChatting(true)
     try {
       const { chatWithCopyCopilot } = await import('@/actions/chat')
@@ -435,7 +521,10 @@ export default function CalendarPage() {
   const handleConceptChatSubmit = async () => {
     const activePost = selectedPostId ? calendar?.find(p => p.id === selectedPostId) : null
     if (!activeBrand || !activePost || !conceptChatInput.trim()) return
-    
+
+    // Track concept refinement instruction for pattern detection
+    trackCopilotInstruction(activePost.id, activePost.platform, activePost.format, conceptChatInput)
+
     setIsIteratingConcept(true)
     try {
       const { chatWithConcept } = await import('@/actions/concept')
@@ -591,7 +680,28 @@ export default function CalendarPage() {
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] animate-in fade-in slide-in-from-bottom-4 duration-500 relative">
       {toast && <Toast {...toast} onClose={hideToast} />}
-      
+
+      {/* Pattern Detection Prompt */}
+      {activePattern && (
+        <PatternPrompt
+          pattern={activePattern}
+          onAccept={(rule) => {
+            addAiKnowledge(rule)
+            showToast('Rule added to AI Knowledge Base permanently', 'success')
+            setActivePattern(null)
+          }}
+          onDismiss={() => {
+            dismissPattern(getPatternKey(activePattern))
+            setActivePattern(null)
+          }}
+          onEditRule={(rule) => {
+            addAiKnowledge(rule)
+            showToast('Custom rule saved to AI Knowledge Base', 'success')
+            setActivePattern(null)
+          }}
+        />
+      )}
+
       {/* Configuration Modal Overlay */}
       {showConfig && (
          <div className="fixed inset-0 z-[100] flex items-center justify-center backdrop-blur-md bg-black/50 p-4">
@@ -1372,6 +1482,12 @@ export default function CalendarPage() {
                            onFocus={() => setOriginalTopic(activePost.topic)}
                            onBlur={async () => {
                              if (originalTopic && originalTopic !== activePost.topic && brandInfo) {
+                               // Track edit for pattern detection (instant, no AI call)
+                               trackAndDetectPattern(
+                                 activePost.id, activePost.platform, activePost.format,
+                                 'topic', originalTopic, activePost.topic
+                               )
+                               // Also run the existing AI-based learning extraction (async)
                                try {
                                  const { extractEditLearning } = await import('@/actions/editLearning')
                                  const res = await extractEditLearning(brandInfo, originalTopic, activePost.topic, 'topic')

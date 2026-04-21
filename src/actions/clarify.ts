@@ -61,7 +61,7 @@ Return STRICTLY as JSON (no markdown):
 ]`
 
   try {
-    const res = await askExpertAgent(prompt, true) // Fast mode
+    const res = await askExpertAgent(prompt, true, '') // Fast mode + skip KB
     if (!res.success) throw new Error("Clarify agent failed.")
 
     let resultText = res.data.replace(/```json/g, '').replace(/```/g, '').trim()

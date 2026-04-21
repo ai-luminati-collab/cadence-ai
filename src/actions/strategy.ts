@@ -1,10 +1,10 @@
 'use server'
 export const maxDuration = 60;
 
-import { askExpertAgent } from '@/lib/openai-agent'
+import { askExpertAgentPremium } from '@/lib/openai-agent'
 import { BrandInfo } from '@/stores/brand'
 import { buildProductContext } from '@/lib/product-context'
-import { getStrategicPatternLibrary } from '@/lib/knowledge-loader'
+import { getStrategicPatternLibrary, getCompilationSources } from '@/lib/knowledge-loader'
 
 export async function generateBrandStrategy(brandDetails: BrandInfo, isRefresh = false) {
   if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('YOUR_KEY_HERE')) {
@@ -12,6 +12,7 @@ export async function generateBrandStrategy(brandDetails: BrandInfo, isRefresh =
   }
 
   const strategicPatternLibrary = await getStrategicPatternLibrary()
+  const compilationSources = getCompilationSources()
 
   const prompt = `
     System Prompt – Legendary Marketer (Universal Brand OS Architect)
@@ -79,8 +80,28 @@ export async function generateBrandStrategy(brandDetails: BrandInfo, isRefresh =
     [STRATEGIC PATTERN LIBRARY END]
     ================================
 
+    === BRAND OS COMPILATION SOURCES (READ AND EXTRACT — DO NOT DUMP VERBATIM) ===
+    You have access to three intelligence databases below. During strategy generation, you MUST read these
+    and extract ONLY the entries relevant to this brand's industry, platforms, and content formats.
+    Compile them into the "compiledBrandOS" field in the JSON output.
+    - From the Anti-Pattern Library: pick the 8-10 anti-patterns MOST likely to appear for this brand's category and formats.
+    - From the Format Structures: extract blueprints for ONLY the formats this brand will actually use (based on platform playbooks).
+    - From the Category Context Maps: find the closest matching category and extract clichés, whitespace, and differentiation signals.
 
-    Creative Laws: Hook in <3s. Proof before puffery. No cultural clichés; only culturally resonant assets. Brand codes in every touchpoint. 
+    [ANTI-PATTERN LIBRARY — 38 ENTRIES]
+    ${compilationSources.antiPatterns}
+    [END ANTI-PATTERN LIBRARY]
+
+    [FORMAT STRUCTURE BLUEPRINTS — 10 FORMATS]
+    ${compilationSources.formatStructures}
+    [END FORMAT STRUCTURES]
+
+    [CATEGORY CONTEXT MAPS — 15 CATEGORIES]
+    ${compilationSources.categoryContextMaps}
+    [END CATEGORY CONTEXT MAPS]
+    =============================================================================
+
+    Creative Laws: Hook in <3s. Proof before puffery. No cultural clichés; only culturally resonant assets. Brand codes in every touchpoint.
     Platform Rule: "Meta" is your primary vehicle for Instagram & Facebook combined. Strategy for Meta must lead with visual dominance and high-retention storytelling.
 
     Return your response STRICTLY as a JSON object with this exact structure (no markdown wrappers):
@@ -136,6 +157,39 @@ export async function generateBrandStrategy(brandDetails: BrandInfo, isRefresh =
            "executionMarkers": ["Specify 3-4 precise formatting/stylistic/structural rules the AI copywriter must follow when executing this pattern."]
          }
        ],
+       "compiledBrandOS": {
+         "platformRules": {
+           // For EACH platform in Target Platforms, extract the critical algorithm rules from the knowledge base.
+           // Key = platform name, Value = 3-5 sentence summary of the most important algo rules for THIS brand on THIS platform.
+           "PlatformNameHere": "Extracted algorithm intelligence relevant to this brand..."
+         },
+         "categoryContext": {
+           "categoryName": "The closest matching category from the Category Context Maps (e.g. 'Food & Beverage', 'D2C Beauty & Skincare')",
+           "clichesToAvoid": ["5-8 category-specific clichés this brand MUST avoid — extracted from the Category Context Maps"],
+           "whitespaceOpportunities": ["3-5 under-exploited angles in this category where this brand can differentiate"],
+           "differentiationSignals": ["3-5 signals that actually stand out in this vertical"]
+         },
+         "formatBlueprints": {
+           // For EACH format this brand will use (based on platform playbooks), extract the structural anatomy.
+           // e.g. "Carousel" → slide 1 hook rules, body pacing, payoff slide, benchmarks
+           // e.g. "Reel" → 0-1.5s hook, beat structure, visual variety, closing mechanics
+           "FormatNameHere": "Structural blueprint: hook → body → CTA anatomy, pacing rules, benchmarks"
+         },
+         "antiPatternChecklist": [
+           // Select 8-10 MOST relevant anti-patterns from the library for this brand's category, platforms, and formats.
+           {
+             "pattern": "Name of the anti-pattern (e.g. 'The Throat-Clear')",
+             "detectionMarker": "How to detect this in generated content (1 sentence)",
+             "fix": "What to do instead (1 sentence)"
+           }
+         ],
+         "qualityRules": {
+           "bannedWords": ["All AI smog words PLUS category-specific banned phrases extracted from the context map"],
+           "categoryCliches": ["Category-specific overused hooks and phrases this brand must never use"],
+           "bossChecklist": ["5-7 ruthless quality checks the Boss model must enforce for THIS specific brand"]
+         },
+         "compiledAt": "${new Date().toISOString()}"
+       },
        "lastRefreshed": "${new Date().toISOString()}"
     }
     
@@ -147,7 +201,8 @@ export async function generateBrandStrategy(brandDetails: BrandInfo, isRefresh =
   `;
 
   try {
-    const res = await askExpertAgent(prompt);
+    // Strategy uses Premium (pure Claude Opus) — too large and important for GPT-mini draft
+    const res = await askExpertAgentPremium(prompt);
     if (!res.success) throw new Error("Agent failed execution.");
 
     let resultText = res.data.replace(/```json/ig, '').replace(/```/g, '').trim();

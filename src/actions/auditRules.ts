@@ -60,7 +60,7 @@ Return as JSON array (no markdown):
 `
 
   try {
-    const res = await askExpertAgent(prompt)
+    const res = await askExpertAgent(prompt, false, '')
     if (!res.success || !res.data) throw new Error("Audit engine failed")
     
     const parsed = JSON.parse(res.data.replace(/```json/g, '').replace(/```/g, '').trim())

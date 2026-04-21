@@ -159,3 +159,27 @@ export async function getStrategicPatternLibrary(): Promise<string> {
     return ''
   }
 }
+
+/**
+ * Load the 3 compilation-source documents (anti-patterns, format structures, category maps).
+ * These are ONLY used during strategy generation to compile the Brand OS.
+ * Downstream calls (content, calendar, concepts) never read these directly.
+ */
+export function getCompilationSources(): {
+  antiPatterns: string
+  formatStructures: string
+  categoryContextMaps: string
+} {
+  const read = (filename: string) => {
+    try {
+      return fs.readFileSync(path.join(KB_DIR, filename), 'utf-8')
+    } catch {
+      return ''
+    }
+  }
+  return {
+    antiPatterns: read('15-anti-pattern-library.md'),
+    formatStructures: read('16-format-structure-patterns.md'),
+    categoryContextMaps: read('17-category-context-maps.md'),
+  }
+}

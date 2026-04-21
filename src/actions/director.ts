@@ -4,6 +4,7 @@ export const maxDuration = 60;
 import { askExpertAgent } from '@/lib/openai-agent'
 import { BrandInfo, Strategy, CalendarPost, ContentDraft } from '@/stores/brand'
 import { getUniversalKnowledge } from '@/lib/knowledge-loader'
+import { buildBrandOSContext } from '@/lib/brand-os-context'
 
 export interface DirectorResponse {
   message: string
@@ -26,8 +27,9 @@ export async function chatWithDirector(
     return `- [${p.date}] ${p.platform} ${p.format}: "${p.topic}" ${draft ? `[DRAFTED — Caption: "${draft.caption?.substring(0, 80)}..."]` : '[NO DRAFT]'}`
   }).join('\n') || 'No recent posts available.'
 
-  // Load universal knowledge for the CD to reference
-  const universalKB = await getUniversalKnowledge()
+  // Use compiled Brand OS if available, fall back to universal KB
+  const brandOSContext = buildBrandOSContext(strategy?.compiledBrandOS)
+  const universalKB = brandOSContext ? '' : await getUniversalKnowledge()
 
   const prompt = `
 === WHO YOU ARE ===
@@ -72,7 +74,11 @@ Category: ${category === 'bad_output' ? '🔴 BAD OUTPUT — User is unhappy wit
 
 User says: "${userFeedback}"
 
-${universalKB ? `
+${brandOSContext ? `
+=== COMPILED BRAND OS (REFERENCE WHEN DIAGNOSING) ===
+${brandOSContext}
+=====================================================
+` : universalKB ? `
 === YOUR KNOWLEDGE BASE (REFERENCE WHEN DIAGNOSING) ===
 ${universalKB}
 =====================================================
@@ -105,7 +111,7 @@ ${universalKB}
 `
 
   try {
-    const res = await askExpertAgent(prompt)
+    const res = await askExpertAgent(prompt, false, brandOSContext ? '' : undefined)
     if (!res.success || !res.data) throw new Error("Director is unavailable.")
     
     let cleanText = res.data.replace(/```json/g, '').replace(/```/g, '').trim()
@@ -166,7 +172,8 @@ If the brand profile is solid, return {"hasGaps": false, "questions": []}.
 Maximum 5 questions, prioritized by impact on content quality.`
 
   try {
-    const res = await askExpertAgent(prompt, true)
+    // Gap detection is lightweight — doesn't need full KB
+    const res = await askExpertAgent(prompt, true, '')
     if (!res.success || !res.data) throw new Error("Gap detection failed.")
     
     const cleaned = res.data.replace(/```json/g, '').replace(/```/g, '').trim()

@@ -72,7 +72,7 @@ export async function synthesizeMarketTraction(brandData: BrandData, params?: Tr
   `
 
   try {
-     const res = await askExpertAgent(prompt)
+     const res = await askExpertAgent(prompt, false, '')
      if (!res.success || !res.data) throw new Error("Failed to synthesize traction.")
      return { success: true, data: res.data.trim() }
   } catch (error: any) {

@@ -127,7 +127,7 @@ Return STRICTLY as JSON (no markdown wrappers):
 Make EVERY field specific to "${brandName}" — reference their actual products, competitors, and market position. NOT generic marketing copy.`
 
   try {
-    const res = await askExpertAgent(prompt)
+    const res = await askExpertAgent(prompt, false, '')
     if (!res.success) throw new Error("Synthesis failed")
     
     let resultText = res.data.replace(/```json/ig, '').replace(/```/g, '').trim()
@@ -217,7 +217,7 @@ Make EVERY caption specific to "${name}" — use the brand name, reference the p
 Be specific, not generic. Output must be 100% valid JSON.`
 
   try {
-    const res = await askExpertAgent(prompt, true) // skipReview for speed
+    const res = await askExpertAgent(prompt, true, '') // skipReview + skip KB
     if (!res.success) throw new Error("Research agent failed.")
     
     let resultText = res.data.replace(/```json/ig, '').replace(/```/g, '').trim()

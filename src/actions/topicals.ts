@@ -45,7 +45,7 @@ Return STRICTLY as a JSON array of objects, with no markdown:
 ]
 `
 
-    const res = await askExpertAgent(prompt, true) // skipReview for speed
+    const res = await askExpertAgent(prompt, true, '') // skipReview + skip KB
     if (!res.success) return { success: false, error: "Topicals agent failed execution." }
 
     let resultText = res.data.replace(/```json/g, '').replace(/```/g, '').trim()
