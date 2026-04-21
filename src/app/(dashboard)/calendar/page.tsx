@@ -126,8 +126,9 @@ export default function CalendarPage() {
       const initial: BucketSelection[] = []
       activePlatforms.forEach(plat => {
         const platKey = Object.keys(strategy.contentPillars!).find(k => plat.includes(k) || k.includes(plat))
-        if (platKey && strategy.contentPillars![platKey]) {
+        if (platKey && Array.isArray(strategy.contentPillars![platKey])) {
           strategy.contentPillars![platKey].forEach(pillar => {
+            if (!Array.isArray(pillar.buckets)) return
             pillar.buckets.forEach(bucket => {
               initial.push({
                 bucketId: bucket.id,

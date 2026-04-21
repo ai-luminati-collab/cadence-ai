@@ -194,7 +194,7 @@ ${liveAlgoState}
 
      const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-     const bossResponse = await anthropic.messages.create({
+     const bossStream = await anthropic.messages.stream({
         model: "claude-opus-4-20250514",
         max_tokens: 16000,
         system: `You are the Ruthless Creative Director at a top-tier culture-led agency.
@@ -223,6 +223,7 @@ CRITICAL: Return ONLY the final improved output. Same JSON format. No commentary
         ]
      })
 
+     const bossResponse = await bossStream.finalMessage()
      const finalOutput = bossResponse.content[0]?.type === 'text' ? bossResponse.content[0].text : null
      const bossTime = ((Date.now() - startBoss) / 1000).toFixed(1)
      console.log(`✅ Stage 2 (Claude Boss) complete in ${bossTime}s`)
@@ -292,7 +293,7 @@ ${liveAlgoState}
      console.log("💎 Running Premium Single-Pass with Claude Opus 4.6...")
      const start = Date.now()
 
-     const response = await anthropic.messages.create({
+     const stream = await anthropic.messages.stream({
         model: "claude-opus-4-20250514",
         max_tokens: 16000,
         system: systemInstructions,
@@ -301,6 +302,7 @@ ${liveAlgoState}
         ]
      })
 
+     const response = await stream.finalMessage()
      const finalOutput = response.content[0]?.type === 'text' ? response.content[0].text : null
      const time = ((Date.now() - start) / 1000).toFixed(1)
      console.log(`✅ Premium Single-Pass (Claude Opus) complete in ${time}s`)
