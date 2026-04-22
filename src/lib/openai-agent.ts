@@ -4,6 +4,50 @@ import fs from 'fs'
 import path from 'path'
 import { createClient } from '@supabase/supabase-js'
 
+// Claude model fallback chain — tries best first, falls back on 404
+const CLAUDE_MODELS = [
+  'claude-opus-4-20250514',
+  'claude-sonnet-4-20250514',
+  'claude-sonnet-4-0',
+  'claude-3-7-sonnet-latest',
+  'claude-3-5-sonnet-latest',
+]
+
+/** Try each model in the fallback chain until one works */
+async function callClaudeWithFallback(
+  anthropic: Anthropic,
+  params: { system: string; messages: Anthropic.MessageParam[]; max_tokens: number }
+): Promise<string | null> {
+  for (const model of CLAUDE_MODELS) {
+    try {
+      console.log(`🔄 Trying Claude model: ${model}`)
+      const stream = await anthropic.messages.stream({
+        model,
+        max_tokens: params.max_tokens,
+        system: params.system,
+        messages: params.messages,
+      })
+      const response = await stream.finalMessage()
+      const text = response.content[0]?.type === 'text' ? response.content[0].text : null
+      if (text) {
+        console.log(`✅ Claude responded via model: ${model}`)
+        return text
+      }
+    } catch (err: any) {
+      const status = err?.status || err?.error?.status
+      const msg = err?.message || ''
+      if (status === 404 || msg.includes('not_found')) {
+        console.warn(`⚠️ Model ${model} not found (404), trying next...`)
+        continue
+      }
+      // For non-404 errors, throw immediately
+      throw err
+    }
+  }
+  console.error('❌ All Claude models failed')
+  return null
+}
+
 // Cache the knowledge base in memory directly on the server
 let cachedKnowledgeBase: string | null = null
 
@@ -194,8 +238,7 @@ ${liveAlgoState}
 
      const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-     const bossStream = await anthropic.messages.stream({
-        model: "claude-opus-4-20250514",
+     const finalOutput = await callClaudeWithFallback(anthropic, {
         max_tokens: 16000,
         system: `You are the Ruthless Creative Director at a top-tier culture-led agency.
 A junior strategist (GPT) just generated a draft. Your job is to tear it apart and rebuild it better.
@@ -222,9 +265,6 @@ CRITICAL: Return ONLY the final improved output. Same JSON format. No commentary
            { role: "user", content: `Here is the junior strategist's draft. Review it ruthlessly and return the improved version:\n\n${draft}` }
         ]
      })
-
-     const bossResponse = await bossStream.finalMessage()
-     const finalOutput = bossResponse.content[0]?.type === 'text' ? bossResponse.content[0].text : null
      const bossTime = ((Date.now() - startBoss) / 1000).toFixed(1)
      console.log(`✅ Stage 2 (Claude Boss) complete in ${bossTime}s`)
      console.log(`📊 Total pipeline: ${((Date.now() - startWorker) / 1000).toFixed(1)}s (Worker/GPT: ${workerTime}s + Boss/Claude: ${bossTime}s)`)
@@ -293,17 +333,13 @@ ${liveAlgoState}
      console.log("💎 Running Premium Single-Pass with Claude Opus 4.6...")
      const start = Date.now()
 
-     const stream = await anthropic.messages.stream({
-        model: "claude-opus-4-20250514",
+     const finalOutput = await callClaudeWithFallback(anthropic, {
         max_tokens: 16000,
         system: systemInstructions,
         messages: [
            { role: "user", content: prompt }
         ]
      })
-
-     const response = await stream.finalMessage()
-     const finalOutput = response.content[0]?.type === 'text' ? response.content[0].text : null
      const time = ((Date.now() - start) / 1000).toFixed(1)
      console.log(`✅ Premium Single-Pass (Claude Opus) complete in ${time}s`)
 
