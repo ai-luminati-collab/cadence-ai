@@ -531,10 +531,20 @@ export default function CalendarPage() {
        }
 
        setLoadingStatus("Matrix Mapping Strategies...")
-       const safeBrandCal = { name: brandInfo.name, industry: brandInfo.industry, primaryAudiences: brandInfo.primaryAudiences, tone: brandInfo.tone } as any
+       const safeBrandCal = { name: brandInfo.name, industry: brandInfo.industry, primaryAudiences: brandInfo.primaryAudiences, tone: brandInfo.tone, communicationStyle: brandInfo.communicationStyle, platforms: brandInfo.platforms, coreProducts: brandInfo.coreProducts, brandType: brandInfo.brandType, productCatalog: brandInfo.productCatalog, serviceOfferings: brandInfo.serviceOfferings, competitors: brandInfo.competitors, website: brandInfo.website, aiKnowledgeBase: brandInfo.aiKnowledgeBase } as any
+       // Trim strategy to only the fields calendar.ts actually reads — avoids 413 Payload Too Large
+       const safeStrategy = {
+          persona: strategy.persona,
+          targetAudience: strategy.targetAudience,
+          coreNarratives: strategy.coreNarratives,
+          platformPlaybooks: strategy.platformPlaybooks,
+          strategicPatterns: strategy.strategicPatterns,
+          compiledBrandOS: strategy.compiledBrandOS,
+          contentPillars: strategy.contentPillars,
+       } as any
        const res = await generateContentCalendar(
-          safeBrandCal, 
-          strategy, 
+          safeBrandCal,
+          safeStrategy,
           startStr,
           endStr,
           'custom',
