@@ -204,7 +204,8 @@ export async function generateBrandStrategy(brandDetails: BrandInfo, isRefresh =
     const res = await askExpertAgentPremium(prompt);
     if (!res.success) throw new Error("Agent failed execution.");
 
-    let resultText = res.data.replace(/```json/ig, '').replace(/```/g, '').trim();
+    let resultText = (res.data || '').replace(/```json/ig, '').replace(/```/g, '').trim();
+    if (!resultText) throw new Error("Agent returned empty strategy");
     // Sometimes OpenAI adds preamble text before the JSON block starts
     const firstBrace = resultText.indexOf('{');
     const lastBrace = resultText.lastIndexOf('}');

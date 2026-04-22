@@ -35,15 +35,20 @@ export async function fetchLiveTrends(): Promise<{ success: boolean; data?: Tren
     // 1. Process Reddit Entertainment Sources
     for (const res of responses) {
        if (res.ok) {
-          const json = await res.json()
-          const subItems = json.data.children.map((child: any) => ({
-             id: child.data.id,
-             title: child.data.title,
-             subreddit: child.data.subreddit,
-             upvotes: child.data.ups,
-             url: child.data.url
-          }))
-          items = [...items, ...subItems]
+          try {
+             const json = await res.json()
+             const children = Array.isArray(json?.data?.children) ? json.data.children : []
+             const subItems = children.map((child: any) => ({
+                id: child?.data?.id || `reddit-${Date.now()}`,
+                title: child?.data?.title || '',
+                subreddit: child?.data?.subreddit || '',
+                upvotes: child?.data?.ups || 0,
+                url: child?.data?.url || ''
+             }))
+             items = [...items, ...subItems]
+          } catch (e) {
+             console.warn('Failed to parse Reddit response:', e)
+          }
        }
     }
 

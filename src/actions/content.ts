@@ -170,7 +170,8 @@ export async function generatePostContent(
      const res = await askExpertAgent(prompt, false, brandOSContext ? '' : undefined)
      if (!res.success) throw new Error("Agent failed execution.")
 
-     let resultText = res.data.replace(/```json/g, '').replace(/```/g, '').trim()
+     let resultText = (res.data || '').replace(/```json/g, '').replace(/```/g, '').trim()
+     if (!resultText) throw new Error("Agent returned empty content")
      const parsed = JSON.parse(resultText)
      
      // Extract platform-specific fields into platformFields

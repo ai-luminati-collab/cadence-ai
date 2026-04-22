@@ -42,8 +42,10 @@ export async function generatePredictedPerformance(brandInfo: BrandInfo, strateg
       const res = await askExpertAgent(prompt, true, ''); // skipReview + skip KB
       if (!res.success) throw new Error("Agent failed forecasting.");
 
-      let resultText = res.data.replace(/```json/g, '').replace(/```/g, '').trim();
-      return { success: true, data: JSON.parse(resultText) };
+      let resultText = (res.data || '').replace(/```json/g, '').replace(/```/g, '').trim();
+      if (!resultText) throw new Error("Agent returned empty forecast");
+      const parsed = JSON.parse(resultText);
+      return { success: true, data: parsed };
    } catch (error: any) {
       console.error("Analytics Forecast Failed:", error);
       return { success: false, error: error.message || "Failed to generate forecast" };

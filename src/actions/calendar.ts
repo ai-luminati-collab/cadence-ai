@@ -227,8 +227,10 @@ export async function generateContentCalendar(
      if (!res.success) throw new Error("Agent failed execution.")
 
      // Remove markdown formatting from Assistant response if any
-     let resultText = res.data.replace(/```json/g, '').replace(/```/g, '').trim()
-     const data = JSON.parse(resultText).posts
+     let resultText = (res.data || '').replace(/```json/g, '').replace(/```/g, '').trim()
+     const parsed = JSON.parse(resultText)
+     const data = Array.isArray(parsed?.posts) ? parsed.posts : Array.isArray(parsed) ? parsed : []
+     if (data.length === 0) throw new Error("Calendar generation returned no posts")
      return { success: true, data }
   } catch (error: any) {
      console.error("AI Calendar Generation Failed:", error)

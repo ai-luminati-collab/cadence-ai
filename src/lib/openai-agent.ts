@@ -5,12 +5,13 @@ import path from 'path'
 import { createClient } from '@supabase/supabase-js'
 
 // Claude model fallback chain — tries best first, falls back on 404
+// Model IDs from /v1/models endpoint (Apr 2026)
 const CLAUDE_MODELS = [
-  'claude-opus-4-20250514',
-  'claude-sonnet-4-20250514',
-  'claude-sonnet-4-0',
-  'claude-3-7-sonnet-latest',
-  'claude-3-5-sonnet-latest',
+  'claude-opus-4-6',              // Opus 4.6 — top tier
+  'claude-sonnet-4-6',            // Sonnet 4.6 — fast + smart
+  'claude-opus-4-5-20251101',     // Opus 4.5 — fallback
+  'claude-sonnet-4-5-20250929',   // Sonnet 4.5 — older fallback
+  'claude-haiku-4-5-20251001',    // Haiku 4.5 — cheapest fallback
 ]
 
 /** Try each model in the fallback chain until one works */
@@ -193,7 +194,7 @@ ${liveAlgoState}
      // ═══════════════════════════════════════════════
      // STAGE 1: WORKER (gpt-4o-mini) — Fast Draft
      // ═══════════════════════════════════════════════
-     console.log("⚡ Stage 1: Worker drafting with gpt-4o-mini...")
+     console.log("⚡ Stage 1: Worker drafting with gpt-5.4-mini...")
      const startWorker = Date.now()
 
      const workerResponse = await openai.chat.completions.create({
@@ -228,7 +229,7 @@ ${liveAlgoState}
      //   3. REJECT entire outputs that are unsalvageable (triggers re-draft)
      //   4. APPROVE only when the output is genuinely world-class
      // ═══════════════════════════════════════════════════════════
-     console.log("🧠 Stage 2: Boss reviewing with Claude Opus 4.6...")
+     console.log("🧠 Stage 2: Boss reviewing with Claude (Opus 4.6 primary)...")
      const startBoss = Date.now()
 
      if (!process.env.ANTHROPIC_API_KEY) {
@@ -330,7 +331,7 @@ ${liveAlgoState}
 `
 
   try {
-     console.log("💎 Running Premium Single-Pass with Claude Opus 4.6...")
+     console.log("💎 Running Premium Single-Pass with Claude Opus 4.6 (claude-opus-4-6)...")
      const start = Date.now()
 
      const finalOutput = await callClaudeWithFallback(anthropic, {

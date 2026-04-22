@@ -52,10 +52,10 @@ export default function AnalyticsPage() {
   }
 
   const stats = [
-    { label: 'Total Reach', value: metrics?.reach.value || '---', trend: metrics?.reach.trend || '0%', icon: Users, color: 'text-indigo-400', bg: 'bg-indigo-400/10' },
-    { label: 'Avg Engagement', value: metrics?.engagement.value || '---', trend: metrics?.engagement.trend || '0%', icon: Activity, color: 'text-pink-400', bg: 'bg-pink-400/10' },
-    { label: 'Profile Visits', value: metrics?.visits.value || '---', trend: metrics?.visits.trend || '0%', icon: TrendingUp, color: 'text-emerald-400', bg: 'bg-emerald-400/10' },
-    { label: 'Content ROI Score', value: metrics?.roi.value || '---', trend: metrics?.roi.status || 'Locked', icon: PieChart, color: 'text-amber-400', bg: 'bg-amber-400/10' },
+    { label: 'Total Reach', value: metrics?.reach?.value || '---', trend: metrics?.reach?.trend || '0%', icon: Users, color: 'text-indigo-400', bg: 'bg-indigo-400/10' },
+    { label: 'Avg Engagement', value: metrics?.engagement?.value || '---', trend: metrics?.engagement?.trend || '0%', icon: Activity, color: 'text-pink-400', bg: 'bg-pink-400/10' },
+    { label: 'Profile Visits', value: metrics?.visits?.value || '---', trend: metrics?.visits?.trend || '0%', icon: TrendingUp, color: 'text-emerald-400', bg: 'bg-emerald-400/10' },
+    { label: 'Content ROI Score', value: metrics?.roi?.value || '---', trend: metrics?.roi?.status || 'Locked', icon: PieChart, color: 'text-amber-400', bg: 'bg-amber-400/10' },
   ]
 
   return (
@@ -116,21 +116,23 @@ export default function AnalyticsPage() {
             ) : (
                <div className="flex-1 relative border-l border-b border-[var(--color-border-subtle)] z-10 w-full mt-auto">
                   {(() => {
-                     const maxY = Math.max(...metrics.growthData.map(p => p.y), 1)
+                     const gd = Array.isArray(metrics.growthData) ? metrics.growthData : []
+                     if (gd.length === 0) return <p className="text-xs text-[var(--color-text-muted)] text-center py-4">No growth data</p>
+                     const maxY = Math.max(...gd.map(p => p.y), 1)
                      const normalize = (y: number) => (y / maxY) * 45 // Scale to 90% of viewbox height
                      return (
                         <svg viewBox="0 0 100 50" preserveAspectRatio="none" className="w-full h-full absolute inset-0 text-[var(--color-accent-500)]">
-                           <path 
-                              d={`M0,${50 - normalize(metrics.growthData[0]?.y || 0)} ${metrics.growthData.map((p, i) => `L${(i / Math.max(metrics.growthData.length - 1, 1)) * 100},${50 - normalize(p.y)}`).join(' ')}`} 
-                              fill="none" 
-                              stroke="currentColor" 
-                              strokeWidth="2" 
+                           <path
+                              d={`M0,${50 - normalize(gd[0]?.y || 0)} ${gd.map((p, i) => `L${(i / Math.max(gd.length - 1, 1)) * 100},${50 - normalize(p.y)}`).join(' ')}`}
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
                               className="animate-in fade-in duration-1000"
                            />
-                           <path 
-                              d={`M0,${50 - normalize(metrics.growthData[0]?.y || 0)} ${metrics.growthData.map((p, i) => `L${(i / Math.max(metrics.growthData.length - 1, 1)) * 100},${50 - normalize(p.y)}`).join(' ')} L100,50 L0,50 Z`} 
-                              fill="url(#gradient)" 
-                              className="opacity-20 animate-in fade-in duration-1000" 
+                           <path
+                              d={`M0,${50 - normalize(gd[0]?.y || 0)} ${gd.map((p, i) => `L${(i / Math.max(gd.length - 1, 1)) * 100},${50 - normalize(p.y)}`).join(' ')} L100,50 L0,50 Z`}
+                              fill="url(#gradient)"
+                              className="opacity-20 animate-in fade-in duration-1000"
                            />
                            <defs>
                               <linearGradient id="gradient" x1="0" x2="0" y1="0" y2="1">
@@ -152,13 +154,13 @@ export default function AnalyticsPage() {
             </div>
             
             <div className="space-y-4">
-               {strategy?.pillars?.map(pillar => {
-                  const pct = parseInt(pillar.val.replace('%', ''))
+               {Array.isArray(strategy?.pillars) && strategy.pillars.map(pillar => {
+                  const pct = parseInt(String(pillar?.val || '0').replace('%', ''), 10) || 0
                   return (
-                     <div key={pillar.title}>
+                     <div key={pillar?.title || Math.random()}>
                         <div className="flex justify-between text-sm mb-1.5">
-                           <span className="text-[var(--color-text-primary)] font-medium">{pillar.title}</span>
-                           <span className="text-[var(--color-text-secondary)] font-bold">{pillar.val}</span>
+                           <span className="text-[var(--color-text-primary)] font-medium">{pillar?.title || 'Untitled'}</span>
+                           <span className="text-[var(--color-text-secondary)] font-bold">{pillar?.val || '0%'}</span>
                         </div>
                         <div className="w-full h-2 rounded-full bg-[var(--color-bg-hover)] overflow-hidden">
                            <div className={`h-full bg-[var(--color-accent-600)] rounded-full transition-all duration-1000`} style={{ width: `${pct}%` }} />

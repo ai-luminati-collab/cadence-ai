@@ -45,7 +45,7 @@ export default function WorkspaceDashboard() {
 
   // Derived data
   const stats = useMemo(() => {
-    if (!calendar.length) return null
+    if (!Array.isArray(calendar) || calendar.length === 0) return null
 
     const now = new Date()
     const today = now.toISOString().split('T')[0]
