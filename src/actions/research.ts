@@ -126,7 +126,7 @@ Return STRICTLY as JSON (no markdown wrappers):
 Make EVERY field specific to "${brandName}" — reference their actual products, competitors, and market position. NOT generic marketing copy.`
 
   try {
-    const res = await askExpertAgent(prompt, false, '')
+    const res = await askExpertAgent(prompt, true, '') // skipReview for 60s timeout
     if (!res.success) throw new Error("Synthesis failed")
     
     let resultText = res.data.replace(/```json/ig, '').replace(/```/g, '').trim()

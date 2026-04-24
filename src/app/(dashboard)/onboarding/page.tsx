@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useBrandStore, BrandInfo, ProductEntry, ServiceEntry, UploadedDoc } from '@/stores/brand'
-import { generateBrandStrategy } from '@/actions/strategy'
+// generateBrandStrategy moved to API route to avoid 60s serverless timeout
 import { researchBrand, BrandResearch, ToneSample, startBrandDeepResearch, pollDeepResearch, synthesizeResearchReport } from '@/actions/research'
 import { ResearchWaiting } from '@/components/ui/ResearchWaiting'
 import { extractEpiphany } from '@/actions/epiphany'
@@ -313,7 +313,7 @@ export default function OnboardingPage() {
         return partial || null
       }
       const normalized = Array.from(new Set(
-        data.suggestedPlatforms.map(normalize).filter((p): p is string => !!p)
+        (data.suggestedPlatforms || []).map(normalize).filter((p): p is string => !!p)
       ))
       data.suggestedPlatforms = normalized
       updateForm('platforms', normalized)
@@ -521,7 +521,7 @@ export default function OnboardingPage() {
     const clarifyNotes = Object.entries(clarifyingAnswers)
       .filter(([, v]) => v.trim())
       .map(([k, v]) => {
-        const q = clarifyingQuestions.find(q => q.id === k)
+        const q = Array.isArray(clarifyingQuestions) ? clarifyingQuestions.find(q => q.id === k) : null
         return `Q: ${q?.question || k}\nA: ${v}`
       }).join('\n\n')
     
@@ -542,7 +542,12 @@ export default function OnboardingPage() {
         brandAssets: [] 
       } as BrandInfo
       
-      const response = await generateBrandStrategy(lightFormData)
+      const res = await fetch('/api/generate-strategy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brandInfo: lightFormData }),
+      })
+      const response = await res.json()
       if (response.success && response.data) {
         setStrategy(response.data)
         if (research) setResearchData(research)

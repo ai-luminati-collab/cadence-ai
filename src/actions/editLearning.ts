@@ -52,7 +52,7 @@ If the edit is just a typo or formatting fix with no meaningful pattern, return:
 `
 
   try {
-    const res = await askExpertAgent(prompt, false, '')
+    const res = await askExpertAgent(prompt, true, '') // skipReview for 60s timeout
     if (!res.success || !res.data) throw new Error("Learning engine failed")
     
     const parsed = JSON.parse(res.data.replace(/```json/g, '').replace(/```/g, '').trim())

@@ -167,7 +167,8 @@ export async function generatePostContent(
   try {
      // Enable Stage 2 (Boss Review) for deep quality oversight
      // When Brand OS exists, pass '' to suppress legacy KB loading (~15K token savings)
-     const res = await askExpertAgent(prompt, false, brandOSContext ? '' : undefined)
+     // skipReview=true to stay under Vercel 60s timeout — GPT-mini is sufficient for content drafts
+     const res = await askExpertAgent(prompt, true, brandOSContext ? '' : undefined)
      if (!res.success) throw new Error("Agent failed execution.")
 
      let resultText = (res.data || '').replace(/```json/g, '').replace(/```/g, '').trim()

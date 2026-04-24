@@ -1,9 +1,8 @@
 'use client'
 
-import { generateBrandStrategy } from '@/actions/strategy'
-import { 
-  Target, MessageSquare, Zap, CheckCircle2, RefreshCw, Swords, Brain, History, 
-  ChevronDown, ChevronUp, Sparkles, BarChart3, Shield, Palette, Type, PenTool, Globe, 
+import {
+  Target, MessageSquare, Zap, CheckCircle2, RefreshCw, Swords, Brain, History,
+  ChevronDown, ChevronUp, Sparkles, BarChart3, Shield, Palette, Type, PenTool, Globe,
   Infinity, Briefcase, Music, Play, Camera, Search, Activity, Users, MessageCircle, X, Check, Download,
   Paperclip, ImagePlus, FolderOpen, Edit3, Upload, Trash2, FileText, Image as ImageIcon, Plus
 } from 'lucide-react'
@@ -262,11 +261,16 @@ export default function StrategyPage() {
     setIsRefreshing(true)
     setError(null)
     try {
-      const res = await generateBrandStrategy(brandInfo, true)
-      if (res.success && res.data) {
-        setStrategy(res.data)
+      const res = await fetch('/api/generate-strategy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brandInfo, isRefresh: true }),
+      })
+      const result = await res.json()
+      if (result.success && result.data) {
+        setStrategy(result.data)
       } else {
-        setError(res.error || "Failed to refresh strategy")
+        setError(result.error || "Failed to refresh strategy")
       }
     } catch (err) {
       setError("An unexpected error occurred")

@@ -57,7 +57,7 @@ Analyze and return as JSON (no markdown):
 `
 
   try {
-    const res = await askExpertAgent(prompt, false, '')
+    const res = await askExpertAgent(prompt, true, '') // skipReview for 60s timeout
     if (!res.success || !res.data) throw new Error("Fingerprint analysis failed")
     
     const parsed = JSON.parse(res.data.replace(/```json/g, '').replace(/```/g, '').trim())

@@ -110,7 +110,7 @@ ${universalKB}
 `
 
   try {
-    const res = await askExpertAgent(prompt, false, brandOSContext ? '' : undefined)
+    const res = await askExpertAgent(prompt, true, brandOSContext ? '' : undefined) // skipReview for 60s timeout
     if (!res.success || !res.data) throw new Error("Director is unavailable.")
     
     let cleanText = res.data.replace(/```json/g, '').replace(/```/g, '').trim()
