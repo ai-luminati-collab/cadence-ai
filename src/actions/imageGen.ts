@@ -2,7 +2,7 @@
 
 import { GoogleGenAI } from '@google/genai'
 import OpenAI from 'openai'
-import { CalendarPost, ContentDraft, BrandInfo, Strategy, BrandAsset, PostReference, FeedAesthetic, VisualGuardrail } from '@/stores/brand'
+import { CalendarPost, ContentDraft, BrandInfo, Strategy, BrandAsset, PostReference, FeedAesthetic, VisualGuardrail, VisualRef } from '@/stores/brand'
 
 const googleAI = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY })
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -106,16 +106,42 @@ async function generateViaOpenAI(prompt: string, modelId: string): Promise<strin
 }
 
 // ──────────────────────────────────────
+// Fetch URL → base64 (for visual refs)
+// ──────────────────────────────────────
+
+async function fetchImageAsBase64(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+    if (!res.ok) return null
+    const contentType = res.headers.get('content-type') || 'image/jpeg'
+    if (!contentType.startsWith('image/')) return null
+    const buffer = await res.arrayBuffer()
+    const b64 = Buffer.from(buffer).toString('base64')
+    return `data:${contentType};base64,${b64}`
+  } catch {
+    console.warn(`⚠️ Could not fetch visual reference: ${url}`)
+    return null
+  }
+}
+
+// ──────────────────────────────────────
 // Reference Image Collector
 // ──────────────────────────────────────
 
-function collectReferenceImages(
+async function collectReferenceImages(
   brandInfo: BrandInfo,
   tenureRefs?: BrandAsset[],
-  postRefs?: PostReference[]
-): string[] {
+  postRefs?: PostReference[],
+  approvedVisualRef?: string | null, // URL of the approved Pinterest/Instagram moodboard
+): Promise<string[]> {
   const refs: string[] = []
-  
+
+  // Priority 0: Approved visual reference from AI search (most specific — user explicitly approved this)
+  if (approvedVisualRef) {
+    const b64 = await fetchImageAsBase64(approvedVisualRef)
+    if (b64) refs.push(b64)
+  }
+
   // Priority 1: Per-post references (most specific)
   if (postRefs?.length) {
     for (const ref of postRefs) {
@@ -142,7 +168,7 @@ function collectReferenceImages(
       }
     }
   }
-  
+
   if (refs.length < 3 && brandInfo.productImages?.length) {
     for (const img of brandInfo.productImages) {
       if ((img.type === 'image' || img.type === 'webp') && img.url.startsWith('data:')) {
@@ -160,6 +186,16 @@ function collectReferenceImages(
   }
 
   return refs.slice(0, 3) // Max 3 reference images
+}
+
+// ──────────────────────────────────────
+// Get approved visual reference URL from post
+// ──────────────────────────────────────
+
+function getApprovedVisualRefUrl(post: CalendarPost): string | null {
+  if (!post.activeReferenceId || !post.visualReferences?.length) return null
+  const approved = post.visualReferences.find(r => r.id === post.activeReferenceId)
+  return approved?.imageUrl || null
 }
 
 // ──────────────────────────────────────
@@ -194,7 +230,8 @@ export async function generateStaticVisual(
       postRefs: draft.postReferences,
     })
 
-    const refs = collectReferenceImages(brandInfo, tenureRefs, draft.postReferences)
+    const approvedRef = getApprovedVisualRefUrl(post)
+    const refs = await collectReferenceImages(brandInfo, tenureRefs, draft.postReferences, approvedRef)
     const imageUrl = await generateImage(prompt, model, refs.length > 0 ? refs : undefined)
     return { success: true, imageUrl }
   } catch (error: any) {
@@ -223,7 +260,8 @@ export async function generateCarouselVisuals(
       .filter(l => l.trim().length > 0)
       .slice(0, slideCount)
 
-    const refs = collectReferenceImages(brandInfo, tenureRefs, draft.postReferences)
+    const approvedRef = getApprovedVisualRefUrl(post)
+    const refs = await collectReferenceImages(brandInfo, tenureRefs, draft.postReferences, approvedRef)
     const imageUrls: string[] = []
 
     // Generate cover slide
@@ -298,7 +336,8 @@ export async function generateStoryVisual(
       postRefs: draft.postReferences,
     })
 
-    const refs = collectReferenceImages(brandInfo, tenureRefs, draft.postReferences)
+    const approvedRef = getApprovedVisualRefUrl(post)
+    const refs = await collectReferenceImages(brandInfo, tenureRefs, draft.postReferences, approvedRef)
     const imageUrl = await generateImage(prompt, model, refs.length > 0 ? refs : undefined)
     return { success: true, imageUrl }
   } catch (error: any) {
