@@ -232,8 +232,8 @@ function generateDateSlots(
 
 // ═══════════════════════════════════════════════════════════════════
 
-// Max posts per AI call — keeps output well under token limits
-const BATCH_SIZE = 12
+// Max posts per AI call — GPT-mini is fast enough for larger batches
+const BATCH_SIZE = 20
 
 export async function generateContentCalendar(
   brandInfo: BrandInfo,
@@ -449,7 +449,9 @@ For Story format ONLY, also include:
 
 Return { "posts": [ ... ] } with EXACTLY ${slots.length} posts. Pure JSON only, no markdown.`
 
-  const res = await askExpertAgentPremium(prompt, brandOSContext ? '' : undefined)
+  // Use GPT-mini (skipReview=true) for speed — each batch must finish in <15s
+  // The date/platform/format precision is handled by code, AI only fills creative
+  const res = await askExpertAgent(prompt, true, brandOSContext ? '' : undefined)
   if (!res.success) throw new Error("Batch generation failed")
 
   let resultText = (res.data || '').replace(/```json/g, '').replace(/```/g, '').trim()
