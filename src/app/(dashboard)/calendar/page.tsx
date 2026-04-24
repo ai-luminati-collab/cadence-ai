@@ -15,7 +15,7 @@ import { Toast, useToast } from '@/components/ui/Toast'
 import { PatternPrompt } from '@/components/ui/PatternPrompt'
 import { exportToPDF } from '@/lib/exportPdf'
 import { getContentSpec } from '@/lib/platform-specs'
-import { generateStaticVisual, generateCarouselVisuals, generateStoryVisual, type ImageModel } from '@/actions/imageGen'
+import { type ImageModel } from '@/actions/imageGen'
 import { classifyEdit, classifyCopilotInstruction, detectPattern, getPatternKey, type EditEvent, type DetectedPattern } from '@/lib/edit-pattern-detector'
 import { VisualReferences } from '@/components/ui/VisualReferences'
 import { findVisualReferences, researchReferences } from '@/actions/references'
@@ -698,43 +698,46 @@ export default function CalendarPage() {
      }
   }
 
-  // Image Generation Handler
+  // Image Generation Handler — uses API route to avoid RSC serialization crash on large base64
   const handleGenerateVisual = async () => {
     const activePost = selectedPostId ? calendar?.find(p => p.id === selectedPostId) : null
     const activeDraft = selectedPostId ? contentDrafts[selectedPostId] : null
     if (!activePost || !activeDraft || !brandInfo || !strategy) return
-    
+
     setIsGeneratingVisual(true)
-    setVisualGenProgress('Preparing visual brief...')
-    
+    setVisualGenProgress(activePost.format === 'Carousel' ? 'Generating carousel slides...' : activePost.format === 'Story' ? 'Generating story frame...' : 'Generating static visual...')
+
     try {
-      let result: { success: boolean; imageUrl?: string; imageUrls?: string[]; error?: string }
-      
-      if (activePost.format === 'Carousel') {
-        setVisualGenProgress('Generating carousel slides...')
-        result = await generateCarouselVisuals(activePost, activeDraft, brandInfo, strategy, 3, imageModel)
-        if (result.success && result.imageUrls) {
+      const res = await fetch('/api/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          post: activePost,
+          draft: activeDraft,
+          brandInfo: { name: brandInfo.name, industry: brandInfo.industry, primaryColorHex: brandInfo.primaryColorHex, secondaryColorHex: brandInfo.secondaryColorHex, headingFont: brandInfo.headingFont, bodyFont: brandInfo.bodyFont, brandReferences: brandInfo.brandReferences, productImages: brandInfo.productImages, brandLogos: brandInfo.brandLogos, visualGuardrails: brandInfo.visualGuardrails, coreProducts: brandInfo.coreProducts },
+          strategy: { persona: strategy.persona, targetAudience: strategy.targetAudience },
+          format: activePost.format,
+          model: imageModel,
+          slideCount: 3,
+        }),
+      })
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => 'Unknown server error')
+        throw new Error(`Server error (${res.status}): ${errText.slice(0, 200)}`)
+      }
+
+      const result = await res.json()
+
+      if (result.success) {
+        if (result.imageUrls) {
           saveDraft(activePost.id, { ...activeDraft, generatedVisuals: result.imageUrls })
           showToast(`${result.imageUrls.length} carousel slides generated`, 'success')
-        }
-      } else if (activePost.format === 'Story') {
-        setVisualGenProgress('Generating story frame...')
-        result = await generateStoryVisual(activePost, activeDraft, brandInfo, strategy, imageModel)
-        if (result.success && result.imageUrl) {
+        } else if (result.imageUrl) {
           saveDraft(activePost.id, { ...activeDraft, generatedVisuals: [result.imageUrl] })
-          showToast('Story visual generated', 'success')
+          showToast('Visual generated', 'success')
         }
       } else {
-        // Static (default)
-        setVisualGenProgress('Generating static visual...')
-        result = await generateStaticVisual(activePost, activeDraft, brandInfo, strategy, imageModel)
-        if (result.success && result.imageUrl) {
-          saveDraft(activePost.id, { ...activeDraft, generatedVisuals: [result.imageUrl] })
-          showToast('Static visual generated', 'success')
-        }
-      }
-      
-      if (!result.success) {
         showToast('Visual generation failed: ' + result.error, 'error')
       }
     } catch (e: any) {
