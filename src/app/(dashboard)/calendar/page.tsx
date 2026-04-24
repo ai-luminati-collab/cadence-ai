@@ -8,7 +8,7 @@ import {
   LayoutGrid, List, Download, CheckCircle2, Film, UploadCloud
 } from 'lucide-react'
 import { useBrandStore } from '@/stores/brand'
-import { generateContentCalendar, type BucketSelection } from '@/actions/calendar'
+import { type BucketSelection } from '@/actions/calendar'
 import { generatePostContent } from '@/actions/content'
 import { useRouter } from 'next/navigation'
 import { Toast, useToast } from '@/components/ui/Toast'
@@ -530,9 +530,9 @@ export default function CalendarPage() {
            tractionData = tractionRes.data
        }
 
-       setLoadingStatus("Matrix Mapping Strategies...")
+       setLoadingStatus("Generating Calendar via AI...")
+       // Use API route instead of server action — avoids RSC serialization limits
        const safeBrandCal = { name: brandInfo.name, industry: brandInfo.industry, primaryAudiences: brandInfo.primaryAudiences, tone: brandInfo.tone, communicationStyle: brandInfo.communicationStyle, platforms: brandInfo.platforms, coreProducts: brandInfo.coreProducts, brandType: brandInfo.brandType, productCatalog: brandInfo.productCatalog, serviceOfferings: brandInfo.serviceOfferings, competitors: brandInfo.competitors, website: brandInfo.website, aiKnowledgeBase: brandInfo.aiKnowledgeBase } as any
-       // Trim strategy to only the fields calendar.ts actually reads — avoids 413 Payload Too Large
        const safeStrategy = {
           persona: strategy.persona,
           targetAudience: strategy.targetAudience,
@@ -542,21 +542,31 @@ export default function CalendarPage() {
           compiledBrandOS: strategy.compiledBrandOS,
           contentPillars: strategy.contentPillars,
        } as any
-       const res = await generateContentCalendar(
-          safeBrandCal,
-          safeStrategy,
-          startStr,
-          endStr,
-          'custom',
-          customEvents,
-          topicals,
-          tractionData,
-          undefined,
-          undefined,
-          Object.keys(contentMatrix).length > 0 ? contentMatrix : undefined,
-          selectedBuckets.length > 0 ? selectedBuckets : undefined,
-          bucketMode
-       )
+
+       const calResponse = await fetch('/api/generate-calendar', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({
+           brandInfo: safeBrandCal,
+           strategy: safeStrategy,
+           startDate: startStr,
+           endDate: endStr,
+           frequency: 'custom',
+           customEvents,
+           topicals,
+           tractionData,
+           contentMatrix: Object.keys(contentMatrix).length > 0 ? contentMatrix : undefined,
+           selectedBuckets: selectedBuckets.length > 0 ? selectedBuckets : undefined,
+           bucketMode
+         })
+       })
+
+       if (!calResponse.ok) {
+         const errBody = await calResponse.text().catch(() => 'Unknown server error')
+         throw new Error(`Server error (${calResponse.status}): ${errBody.slice(0, 200)}`)
+       }
+
+       const res = await calResponse.json()
 
        if (res.success && res.data) {
           setCalendar(res.data)
