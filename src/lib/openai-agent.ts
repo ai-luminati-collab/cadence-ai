@@ -335,7 +335,7 @@ ${liveAlgoState}
      const start = Date.now()
 
      const finalOutput = await callClaudeWithFallback(anthropic, {
-        max_tokens: 16000,
+        max_tokens: 32000,
         system: systemInstructions,
         messages: [
            { role: "user", content: prompt }

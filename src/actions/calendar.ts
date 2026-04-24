@@ -232,6 +232,9 @@ function generateDateSlots(
 
 // ═══════════════════════════════════════════════════════════════════
 
+// Max posts per AI call — keeps output well under token limits
+const BATCH_SIZE = 12
+
 export async function generateContentCalendar(
   brandInfo: BrandInfo,
   strategy: Strategy,
@@ -256,212 +259,267 @@ export async function generateContentCalendar(
     startDate, endDate, contentMatrix, lockedTopicals, frequency, brandInfo.platforms
   )
 
-  // Build the slot manifest for the AI
-  const slotManifest = preSlots.map(s =>
-    `  [SLOT ${s.slotIndex}] Date: ${s.date} | Platform: ${s.platform} | Format: ${s.format}`
-  ).join('\n')
+  console.log(`📅 Date engine generated ${preSlots.length} slots`)
 
-  // Summary stats for the AI
-  const platformCounts: Record<string, number> = {}
-  const formatCounts: Record<string, number> = {}
-  for (const s of preSlots) {
-    platformCounts[s.platform] = (platformCounts[s.platform] || 0) + 1
-    formatCounts[s.format] = (formatCounts[s.format] || 0) + 1
-  }
-  const summaryStr = Object.entries(platformCounts)
-    .map(([p, c]) => `${p}: ${c} posts`)
-    .join(', ')
-
-  // Use compiled Brand OS if available (saves ~15K tokens vs loading full KB)
+  // Use compiled Brand OS if available
   const brandOSContext = buildBrandOSContext(strategy.compiledBrandOS)
   const knowledgeSummary = brandOSContext ? '' : await getAllKnowledgeSummary()
 
-  const prompt = `
-    You are an elite Social Media Manager and Content Strategist.
-    We need to fill a pre-scheduled content calendar with ${preSlots.length} posts between [${startDate}] and [${endDate}].
+  // ── Build shared context (sent with every batch) ──
+  const sharedContext = buildSharedContext(
+    brandInfo, strategy, customEvents, liveMarketTraction,
+    lockedTopicals, selectedBuckets, bucketMode,
+    brandOSContext, knowledgeSummary
+  )
 
-    IMPORTANT: The DATE, PLATFORM, and FORMAT for every post have ALREADY been decided by our scheduling engine.
-    Your job is ONLY to fill in the CREATIVE — the topic, concept, pillar, psychological trigger, and all content fields.
-    Do NOT change any dates, platforms, or formats. They are locked.
+  // ── STEP 2: Batch slots into chunks and generate in parallel/sequence ──
+  const batches: PreScheduledSlot[][] = []
+  for (let i = 0; i < preSlots.length; i += BATCH_SIZE) {
+    batches.push(preSlots.slice(i, i + BATCH_SIZE))
+  }
 
-    Here is the brand context:
-    Name: ${brandInfo.name}
-    Industry: ${brandInfo.industry}
-    Voice: ${strategy.persona}
-    Audience: ${strategy.targetAudience}
-    Distribution: ${summaryStr}
+  console.log(`🔄 Splitting into ${batches.length} batch(es) of up to ${BATCH_SIZE} posts`)
 
-    ${buildProductContext(brandInfo.brandType, brandInfo.productCatalog, brandInfo.serviceOfferings, brandInfo.uploadedDocs) ? `
-    === PRODUCT/SERVICE INTELLIGENCE ===
-    ${buildProductContext(brandInfo.brandType, brandInfo.productCatalog, brandInfo.serviceOfferings, brandInfo.uploadedDocs)}
-    ===================================
-    ` : ''}
-
-    ${brandInfo.coreProducts && brandInfo.coreProducts.length > 0 ? `
-    === CORE PRODUCTS / MENU — ANTI-HALLUCINATION CONSTRAINT (MANDATORY) ===
-    The brand "${brandInfo.name}" sells ONLY these specific products/items:
-    ${brandInfo.coreProducts.map((p, i) => `  ${i+1}. ${p}`).join('\n')}
-
-    IMPORTANT NUANCE:
-    - NOT every post needs to feature a product. Culture, BTS, lifestyle, trends, community posts are encouraged.
-    - But if a post DOES reference a specific product, it MUST be from the list above by EXACT name.
-    - NEVER invent products not on this list.
-    ========================================================================
-    ` : ''}
-
-    Content Pillars and their distribution weighting:
-    ${strategy.coreNarratives}
-
-    ${strategy.strategicPatterns && strategy.strategicPatterns.length > 0 ? `
-    === MASTER STRATEGIC PATTERNS (CRITICAL INJECTION) ===
-    Align each post with ONE of these patterns:
-    ${strategy.strategicPatterns.map((p, i) => `
-    Pattern ${i+1}: [${p.id}] ${p.name}
-    Description: ${p.description}
-    Execution Markers: ${p.executionMarkers.join(', ')}
-    `).join('\n')}
-    ======================================================
-    ` : ''}
-
-    ${customEvents || "None specified. Auto-detect relevant cultural holidays for the target demographic if applicable."}
-
-    === LIVE MARKET TRACTION ===
-    ${liveMarketTraction && liveMarketTraction !== "NO_LIVE_DATA_AVAILABLE"
-      ? `Use these viral archetypes to shape concepts:\n${liveMarketTraction}`
-      : "No live traction data. Default to foundational elite strategy."}
-    ============================
-
-    === USER-LOCKED TOPICALS ===
-    ${lockedTopicals.length > 0 ? lockedTopicals.filter(t => t.selected).map(t => `[LOCKED] Date: ${t.dateStr} | Event: ${t.name} | Format: ${t.suggestedFormat} | Relevance: ${t.relevance}`).join('\n') : "No locked topicals."}
-    ============================
-
-    === PLATFORM NATIVE PLAYBOOKS ===
-    ${strategy.platformPlaybooks && Object.keys(strategy.platformPlaybooks).length > 0
-      ? Object.entries(strategy.platformPlaybooks).map(([platform, playbook]) => `
-      [${platform.toUpperCase()}]:
-      - Role: ${playbook.role}
-      - Mechanics: ${playbook.mechanics}
-      - Tone: ${playbook.toneModifier}
-      - Cadence: ${playbook.cadence}
-      `).join('\n')
-      : "Rely on native best practices."}
-    =================================
-
-    ${brandInfo.aiKnowledgeBase && brandInfo.aiKnowledgeBase.length > 0 ? `
-    === LEARNED BRAND RULES (HIGHEST PRIORITY) ===
-    ${brandInfo.aiKnowledgeBase.map((rule, i) => `    ${i+1}. ${rule}`).join('\n')}
-    ================================================
-    ` : ''}
-
-    ${selectedBuckets && selectedBuckets.length > 0 ? `
-    === CONTENT BUCKET MIX (${bucketMode === 'manual' ? 'STRICT COUNTS' : 'AI-GUIDED MIN/MAX'}) ===
-    Each post MUST be assigned to one of these buckets:
-    ${selectedBuckets.map(b => `  - [${b.pillarName}] "${b.bucketName}" (ID: ${b.bucketId}) ${b.count ? `EXACT: ${b.count} posts` : `Range: ${b.min}-${b.max}/month`}`).join('\n')}
-    ${bucketMode === 'manual' ? 'Match exact post counts per bucket.' : 'Stay within min/max ranges.'}
-    ================================================================
-    ` : ''}
-
-    QUALITY RULES:
-    1. META = Instagram & Facebook combined. Lead with high-retention visual hooks.
-    2. Use native hooks (POV, Unpopular Opinion, etc.). No generic corporate ideas.
-    3. Pull psychological levers: status, survival, belonging, FOMO, curiosity.
-    4. No cringe. No 2010 marketing speak. Cultural resonance only.
-    5. NEVER use em dashes (-- or —). Use commas, periods, or short dashes (-).
-
-    ${brandOSContext ? `
-    === COMPILED BRAND OS (GROUND TRUTH) ===
-    ${brandOSContext}
-    =========================================
-    ` : knowledgeSummary ? `
-    === CONTENT INTELLIGENCE ===
-    ${knowledgeSummary}
-    ============================
-    ` : ''}
-
-    ════════════════════════════════════════════════════════════
-    PRE-SCHEDULED SLOTS — YOU MUST GENERATE EXACTLY ONE POST PER SLOT
-    Total: ${preSlots.length} posts
-    ════════════════════════════════════════════════════════════
-${slotManifest}
-    ════════════════════════════════════════════════════════════
-
-    For EACH slot above, output a JSON object with these fields:
-    "id": A unique random string (e.g. "post-abc123")
-    "date": COPY EXACTLY from the slot above (YYYY-MM-DD)
-    "platform": COPY EXACTLY from the slot above
-    "format": COPY EXACTLY from the slot above
-    "pillar": Which content pillar this fits (use exact pillar names from above)
-    ${selectedBuckets && selectedBuckets.length > 0 ? `"bucketId": The exact bucket ID this post belongs to.
-    "bucketName": The exact bucket name.` : ''}
-    "topic": A hyper-engaging, viral 2-3 sentence description of the full concept, angle, and narrative arc. Be DETAILED and SPECIFIC. (e.g. "POV: you finally found the skincare routine that clears hormonal acne. Open on a frustrated morning mirror check, then reveal the 3-step ritual. End with the 'glowing skin' payoff shot.")
-    "eventContext": If related to a cultural holiday/trend on that day, name it. Otherwise "".
-    "psychTrigger": 1-sentence analysis of which psychological lever this post pulls and HOW.
-    "usageStory": 1-sentence description of how/where the product or brand appears in THIS concept.
-    ${strategy.strategicPatterns && strategy.strategicPatterns.length > 0 ? `"strategicPatternId": The pattern ID this post executes.
-    "strategicPatternName": The pattern name.` : ''}
-
-    === STORY FORMAT EXTRAS (only when format is 'Story') ===
-    "storyMediaType": "video" or "static"
-    "storyFeature": One of: "Poll", "Quiz", "Question Box", "Countdown", "Emoji Slider", "Link Sticker", "Music", "Mention"
-    "storyCopy": Text overlay (under 15 words, punchy)
-    ==========================================================
-
-    Return { "posts": [ ... ] } with EXACTLY ${preSlots.length} posts. No markdown. No wrappers. Pure JSON.
-  `
+  let allPosts: any[] = []
 
   try {
-     const res = await askExpertAgentPremium(prompt, brandOSContext ? '' : undefined)
-     if (!res.success) throw new Error("Agent failed execution.")
+    // Generate batches sequentially (parallel would be faster but risks rate limits)
+    for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+      const batch = batches[batchIdx]
+      console.log(`⚡ Batch ${batchIdx + 1}/${batches.length}: generating ${batch.length} posts...`)
 
-     let resultText = (res.data || '').replace(/```json/g, '').replace(/```/g, '').trim()
-     const parsed = JSON.parse(resultText)
-     let posts = Array.isArray(parsed?.posts) ? parsed.posts : Array.isArray(parsed) ? parsed : []
+      const batchPosts = await generateBatch(
+        batch, sharedContext, strategy, selectedBuckets, brandOSContext
+      )
+      allPosts = [...allPosts, ...batchPosts]
+    }
 
-     if (posts.length === 0) throw new Error("Calendar generation returned no posts")
+    if (allPosts.length === 0) throw new Error("Calendar generation returned no posts")
 
-     // ── POST-PROCESSING: Enforce the pre-scheduled slots ──
-     // If AI returned fewer posts than slots, or changed dates/platforms, fix it
-     if (posts.length < preSlots.length) {
-       console.warn(`⚠️ AI returned ${posts.length} posts but ${preSlots.length} slots were scheduled. Padding missing slots.`)
-       // Keep what AI gave us, add placeholder slots for the rest
-       const coveredDates = new Set(posts.map((p: any) => `${p.date}|${p.platform}|${p.format}`))
-       for (const slot of preSlots) {
-         const key = `${slot.date}|${slot.platform}|${slot.format}`
-         if (!coveredDates.has(key)) {
-           posts.push({
-             id: slot.id,
-             date: slot.date,
-             platform: slot.platform,
-             format: slot.format,
-             pillar: 'General',
-             topic: `[Pending] ${slot.platform} ${slot.format} post - concept to be filled`,
-             eventContext: '',
-             psychTrigger: '',
-             usageStory: ''
-           })
-         }
-       }
-     }
+    // ── POST-PROCESSING: Fill any gaps with placeholder posts ──
+    if (allPosts.length < preSlots.length) {
+      console.warn(`⚠️ AI returned ${allPosts.length} posts but ${preSlots.length} slots exist. Padding.`)
+      const covered = new Set(allPosts.map((p: any) => `${p.date}|${p.platform}|${p.format}`))
+      for (const slot of preSlots) {
+        const key = `${slot.date}|${slot.platform}|${slot.format}`
+        if (!covered.has(key)) {
+          allPosts.push({
+            id: slot.id,
+            date: slot.date,
+            platform: slot.platform,
+            format: slot.format,
+            pillar: 'General',
+            topic: `[Pending] ${slot.platform} ${slot.format} post - concept to be filled`,
+            eventContext: '',
+            psychTrigger: '',
+            usageStory: ''
+          })
+        }
+      }
+    }
 
-     // Enforce correct dates/platforms from slots (in case AI hallucinated different ones)
-     posts = posts.slice(0, preSlots.length).map((post: any, i: number) => {
-       const slot = preSlots[i]
-       if (!slot) return post
-       return {
-         ...post,
-         date: slot.date,
-         platform: slot.platform,
-         format: slot.format,
-         id: post.id || slot.id
-       }
-     })
+    // Sort chronologically
+    allPosts.sort((a: any, b: any) => a.date.localeCompare(b.date))
 
-     // Sort by date
-     posts.sort((a: any, b: any) => a.date.localeCompare(b.date))
-
-     return { success: true, data: posts }
+    console.log(`✅ Calendar complete: ${allPosts.length} posts`)
+    return { success: true, data: allPosts }
   } catch (error: any) {
-     console.error("AI Calendar Generation Failed:", error)
-     return { success: false, error: error.message || "Failed to generate Calendar" }
+    console.error("AI Calendar Generation Failed:", error)
+    return { success: false, error: error.message || "Failed to generate Calendar" }
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SHARED CONTEXT BUILDER — Assembled once, reused for every batch
+// ═══════════════════════════════════════════════════════════════════
+
+function buildSharedContext(
+  brandInfo: BrandInfo,
+  strategy: Strategy,
+  customEvents: string,
+  liveMarketTraction: string,
+  lockedTopicals: TopicalEvent[],
+  selectedBuckets: BucketSelection[] | undefined,
+  bucketMode: string | undefined,
+  brandOSContext: string,
+  knowledgeSummary: string
+): string {
+  const sections: string[] = []
+
+  sections.push(`Brand: ${brandInfo.name} | Industry: ${brandInfo.industry}
+Voice: ${strategy.persona}
+Audience: ${strategy.targetAudience}`)
+
+  if (brandInfo.coreProducts && brandInfo.coreProducts.length > 0) {
+    sections.push(`CORE PRODUCTS (only reference these by exact name if mentioning a product):
+${brandInfo.coreProducts.map((p, i) => `  ${i+1}. ${p}`).join('\n')}
+Not every post needs a product. Culture/BTS/lifestyle posts are encouraged.`)
+  }
+
+  sections.push(`Content Pillars: ${strategy.coreNarratives}`)
+
+  if (strategy.strategicPatterns && strategy.strategicPatterns.length > 0) {
+    sections.push(`STRATEGIC PATTERNS (align each post to one):
+${strategy.strategicPatterns.map((p, i) => `  ${p.id}: ${p.name} - ${p.description}`).join('\n')}`)
+  }
+
+  if (strategy.platformPlaybooks && Object.keys(strategy.platformPlaybooks).length > 0) {
+    sections.push(`PLATFORM PLAYBOOKS:
+${Object.entries(strategy.platformPlaybooks).map(([plat, pb]) =>
+  `  ${plat}: Role=${pb.role} | Mechanics=${pb.mechanics} | Tone=${pb.toneModifier}`
+).join('\n')}`)
+  }
+
+  if (liveMarketTraction && liveMarketTraction !== "NO_LIVE_DATA_AVAILABLE") {
+    sections.push(`LIVE TRACTION:\n${liveMarketTraction}`)
+  }
+
+  if (lockedTopicals.length > 0) {
+    const locked = lockedTopicals.filter(t => t.selected)
+    if (locked.length > 0) {
+      sections.push(`LOCKED TOPICALS:\n${locked.map(t => `  ${t.dateStr}: ${t.name} (${t.suggestedFormat})`).join('\n')}`)
+    }
+  }
+
+  if (brandInfo.aiKnowledgeBase && brandInfo.aiKnowledgeBase.length > 0) {
+    sections.push(`LEARNED RULES (HIGHEST PRIORITY):\n${brandInfo.aiKnowledgeBase.map((r, i) => `  ${i+1}. ${r}`).join('\n')}`)
+  }
+
+  if (selectedBuckets && selectedBuckets.length > 0) {
+    sections.push(`CONTENT BUCKETS (${bucketMode === 'manual' ? 'strict counts' : 'AI-guided'}):
+${selectedBuckets.map(b => `  [${b.pillarName}] "${b.bucketName}" (${b.bucketId}) ${b.count ? `exact: ${b.count}` : `${b.min}-${b.max}/mo`}`).join('\n')}`)
+  }
+
+  if (brandOSContext) {
+    sections.push(`BRAND OS:\n${brandOSContext}`)
+  } else if (knowledgeSummary) {
+    sections.push(`CONTENT INTELLIGENCE:\n${knowledgeSummary}`)
+  }
+
+  return sections.join('\n\n')
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// BATCH GENERATOR — Generates creative for a chunk of slots
+// ═══════════════════════════════════════════════════════════════════
+
+async function generateBatch(
+  slots: PreScheduledSlot[],
+  sharedContext: string,
+  strategy: Strategy,
+  selectedBuckets: BucketSelection[] | undefined,
+  brandOSContext: string
+): Promise<any[]> {
+  const slotManifest = slots.map(s =>
+    `  [SLOT ${s.slotIndex}] ${s.date} | ${s.platform} | ${s.format}`
+  ).join('\n')
+
+  const hasPatterns = strategy.strategicPatterns && strategy.strategicPatterns.length > 0
+  const hasBuckets = selectedBuckets && selectedBuckets.length > 0
+
+  const prompt = `
+You are an elite Social Media Strategist. Fill in the creative for these ${slots.length} pre-scheduled posts.
+The dates, platforms, and formats are LOCKED. Only provide the creative content.
+
+${sharedContext}
+
+QUALITY: No AI smog. No em dashes. Cultural native tone. Specific to THIS brand.
+
+═══ SLOTS TO FILL (${slots.length} posts) ═══
+${slotManifest}
+═══════════════════════════════════
+
+For each slot, return a JSON object:
+- "id": unique string (e.g. "post-abc123")
+- "date": EXACT date from slot (YYYY-MM-DD)
+- "platform": EXACT platform from slot
+- "format": EXACT format from slot
+- "pillar": content pillar name
+${hasBuckets ? '- "bucketId": bucket ID\n- "bucketName": bucket name' : ''}
+- "topic": 2-3 sentence viral concept. DETAILED. Not just a hook - full concept, angle, narrative arc.
+- "eventContext": cultural event name if applicable, otherwise ""
+- "psychTrigger": 1-sentence psychological lever analysis
+- "usageStory": 1-sentence brand/product appearance in concept
+${hasPatterns ? '- "strategicPatternId": pattern ID\n- "strategicPatternName": pattern name' : ''}
+${slots.some(s => s.format === 'Story') ? `
+For Story format ONLY, also include:
+- "storyMediaType": "video" or "static"
+- "storyFeature": "Poll"/"Quiz"/"Question Box"/"Countdown"/"Emoji Slider"/"Link Sticker"/"Music"/"Mention"
+- "storyCopy": text overlay (under 15 words)` : ''}
+
+Return { "posts": [ ... ] } with EXACTLY ${slots.length} posts. Pure JSON only, no markdown.`
+
+  const res = await askExpertAgentPremium(prompt, brandOSContext ? '' : undefined)
+  if (!res.success) throw new Error("Batch generation failed")
+
+  let resultText = (res.data || '').replace(/```json/g, '').replace(/```/g, '').trim()
+
+  // Try to parse; if truncated JSON, attempt repair
+  let posts: any[] = []
+  try {
+    const parsed = JSON.parse(resultText)
+    posts = Array.isArray(parsed?.posts) ? parsed.posts : Array.isArray(parsed) ? parsed : []
+  } catch (parseErr) {
+    console.warn('⚠️ JSON parse failed, attempting repair...')
+    posts = repairTruncatedJSON(resultText, slots)
+  }
+
+  // Enforce slot data onto posts (AI can't change dates/platforms/formats)
+  return posts.slice(0, slots.length).map((post: any, i: number) => {
+    const slot = slots[i]
+    if (!slot) return post
+    return {
+      ...post,
+      date: slot.date,
+      platform: slot.platform,
+      format: slot.format,
+      id: post.id || slot.id
+    }
+  })
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// JSON REPAIR — Recovers posts from truncated AI output
+// ═══════════════════════════════════════════════════════════════════
+
+function repairTruncatedJSON(raw: string, slots: PreScheduledSlot[]): any[] {
+  console.log(`🔧 Attempting to repair truncated JSON (${raw.length} chars)`)
+
+  // Strategy: find all complete JSON objects in the array
+  const posts: any[] = []
+
+  // Find the posts array start
+  const arrayStart = raw.indexOf('[')
+  if (arrayStart === -1) return []
+
+  let depth = 0
+  let objStart = -1
+
+  for (let i = arrayStart; i < raw.length; i++) {
+    const ch = raw[i]
+
+    if (ch === '{' && depth === 1) {
+      // Start of a post object (depth 1 = inside the array)
+      objStart = i
+    }
+
+    if (ch === '{') depth++
+    if (ch === '}') {
+      depth--
+      if (depth === 1 && objStart !== -1) {
+        // End of a post object
+        const objStr = raw.substring(objStart, i + 1)
+        try {
+          const obj = JSON.parse(objStr)
+          posts.push(obj)
+        } catch {
+          // Skip malformed object
+        }
+        objStart = -1
+      }
+    }
+  }
+
+  console.log(`🔧 Recovered ${posts.length}/${slots.length} posts from truncated JSON`)
+  return posts
 }
