@@ -48,8 +48,16 @@ function generateDateSlots(
   const start = new Date(startDate + 'T00:00:00')
   const end = new Date(endDate + 'T00:00:00')
 
-  // If content matrix exists, use it to generate exact slots per month
-  if (contentMatrix && Object.keys(contentMatrix).length > 0) {
+  // Check if content matrix has any actual posts (not just empty month keys)
+  const matrixHasPosts = contentMatrix && Object.keys(contentMatrix).length > 0 &&
+    Object.values(contentMatrix).some(platformData =>
+      Object.values(platformData).some(formats =>
+        Object.values(formats).some(count => count > 0)
+      )
+    )
+
+  // If content matrix exists AND has real post counts, use it
+  if (matrixHasPosts && contentMatrix) {
     for (const [monthKey, platformData] of Object.entries(contentMatrix)) {
       const [y, m] = monthKey.split('-')
       const year = parseInt(y)
@@ -182,8 +190,11 @@ function generateDateSlots(
         })
       }
     }
-  } else {
-    // ── FALLBACK: No content matrix — generate a reasonable default ──
+  }
+
+  // ── FALLBACK: No valid content matrix — generate a reasonable default ──
+  if (slots.length === 0) {
+    console.log('📅 No matrix posts found — using fallback distribution')
     let targetCount = 18 // moderate
     if (frequency === 'aggressive') targetCount = 28
     if (frequency === 'light') targetCount = 10
@@ -452,9 +463,24 @@ Return { "posts": [ ... ] } with EXACTLY ${slots.length} posts. Pure JSON only, 
   // Use GPT-mini (skipReview=true) for speed — each batch must finish in <15s
   // The date/platform/format precision is handled by code, AI only fills creative
   const res = await askExpertAgent(prompt, true, brandOSContext ? '' : undefined)
-  if (!res.success) throw new Error("Batch generation failed")
+  if (!res.success) throw new Error(`Batch generation failed: ${(res as any).error || 'unknown'}`)
 
   let resultText = (res.data || '').replace(/```json/g, '').replace(/```/g, '').trim()
+
+  if (!resultText || resultText.length < 10) {
+    console.warn(`⚠️ AI returned empty/tiny response (${resultText.length} chars). Generating placeholders.`)
+    return slots.map(slot => ({
+      id: slot.id,
+      date: slot.date,
+      platform: slot.platform,
+      format: slot.format,
+      pillar: 'General',
+      topic: `[AI Draft Pending] ${slot.platform} ${slot.format} post`,
+      eventContext: '',
+      psychTrigger: '',
+      usageStory: ''
+    }))
+  }
 
   // Try to parse; if truncated JSON, attempt repair
   let posts: any[] = []
@@ -464,6 +490,22 @@ Return { "posts": [ ... ] } with EXACTLY ${slots.length} posts. Pure JSON only, 
   } catch (parseErr) {
     console.warn('⚠️ JSON parse failed, attempting repair...')
     posts = repairTruncatedJSON(resultText, slots)
+  }
+
+  // If AI returned fewer posts than slots, pad with placeholders
+  if (posts.length === 0) {
+    console.warn('⚠️ AI returned 0 parseable posts. Using placeholders for all slots.')
+    return slots.map(slot => ({
+      id: slot.id,
+      date: slot.date,
+      platform: slot.platform,
+      format: slot.format,
+      pillar: 'General',
+      topic: `[AI Draft Pending] ${slot.platform} ${slot.format} post — concept to be filled`,
+      eventContext: '',
+      psychTrigger: '',
+      usageStory: ''
+    }))
   }
 
   // Enforce slot data onto posts (AI can't change dates/platforms/formats)
