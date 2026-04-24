@@ -708,13 +708,17 @@ export default function CalendarPage() {
     setVisualGenProgress(activePost.format === 'Carousel' ? 'Generating carousel slides...' : activePost.format === 'Story' ? 'Generating story frame...' : 'Generating static visual...')
 
     try {
+      // Strip base64 image data from payload to stay under Vercel's 4.5MB limit
+      const stripBase64 = (assets?: any[]) => assets?.map(a => ({ ...a, url: a.url?.startsWith('data:') ? '' : a.url }))
+      const lightDraft = { ...activeDraft, postReferences: activeDraft.postReferences?.map(r => ({ ...r, url: r.url?.startsWith('data:') ? '' : r.url })) }
+
       const res = await fetch('/api/generate-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           post: activePost,
-          draft: activeDraft,
-          brandInfo: { name: brandInfo.name, industry: brandInfo.industry, primaryColorHex: brandInfo.primaryColorHex, secondaryColorHex: brandInfo.secondaryColorHex, headingFont: brandInfo.headingFont, bodyFont: brandInfo.bodyFont, brandReferences: brandInfo.brandReferences, productImages: brandInfo.productImages, brandLogos: brandInfo.brandLogos, visualGuardrails: brandInfo.visualGuardrails, coreProducts: brandInfo.coreProducts },
+          draft: lightDraft,
+          brandInfo: { name: brandInfo.name, industry: brandInfo.industry, primaryColorHex: brandInfo.primaryColorHex, secondaryColorHex: brandInfo.secondaryColorHex, headingFont: brandInfo.headingFont, bodyFont: brandInfo.bodyFont, visualGuardrails: brandInfo.visualGuardrails, coreProducts: brandInfo.coreProducts },
           strategy: { persona: strategy.persona, targetAudience: strategy.targetAudience },
           format: activePost.format,
           model: imageModel,
