@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Activity, Sparkles, TrendingUp, RefreshCw, X, FileVideo, ImageIcon, ExternalLink } from 'lucide-react'
 import { fetchLiveTrends, hijackTrend, TrendItem } from '@/actions/trends'
 import { Toast, useToast } from '@/components/ui/Toast'
+import { sanitizeErrorForUI } from '@/lib/error-sanitizer'
 
 export default function TrendsPage() {
   const router = useRouter()
@@ -43,7 +44,7 @@ export default function TrendsPage() {
      if (res.success && res.data) {
         setTrends(res.data)
      } else {
-        setError(res.error || "Failed to load live trends.")
+        setError(sanitizeErrorForUI(res.error || 'Failed to load live trends.'))
      }
      setIsLoading(false)
   }
@@ -61,7 +62,7 @@ export default function TrendsPage() {
       if (res.success && res.data) {
          setConcept(res.data)
       } else {
-         showToast('Concept generation failed: ' + (res.error || 'Unknown error'), 'error')
+         showToast('Concept generation failed. ' + sanitizeErrorForUI(res.error || ''), 'error')
       }
      setIsHijacking(false)
   }

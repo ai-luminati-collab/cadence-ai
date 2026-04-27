@@ -9,6 +9,7 @@ import {
 import { useBrandStore, type BrandAsset } from '@/stores/brand'
 import { useRouter } from 'next/navigation'
 import React, { useEffect, useState, useRef } from 'react'
+import { sanitizeErrorForUI } from '@/lib/error-sanitizer'
 
 const PLATFORM_ICONS: Record<string, { icon: any, color: string }> = {
   "Meta (Instagram & Facebook)": { icon: Infinity, color: "text-blue-400" },
@@ -270,7 +271,7 @@ export default function StrategyPage() {
       if (result.success && result.data) {
         setStrategy(result.data)
       } else {
-        setError(result.error || "Failed to refresh strategy")
+        setError(sanitizeErrorForUI(result.error || 'Failed to refresh strategy'))
       }
     } catch (err) {
       setError("An unexpected error occurred")

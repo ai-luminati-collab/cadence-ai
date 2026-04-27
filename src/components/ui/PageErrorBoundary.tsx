@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react'
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react'
+import { sanitizeErrorForUI } from '@/lib/error-sanitizer'
 
 export function PageErrorBoundary({
   error,
@@ -16,6 +17,9 @@ export function PageErrorBoundary({
     console.error(`${pageName} error:`, error)
   }, [error, pageName])
 
+  // Sanitize the error message so raw API/billing details never reach the user
+  const safeMessage = error.message ? sanitizeErrorForUI(error.message) : ''
+
   return (
     <div className="flex items-center justify-center min-h-[60vh] p-8">
       <div className="max-w-md text-center space-y-6">
@@ -27,9 +31,9 @@ export function PageErrorBoundary({
           <p className="text-sm text-[var(--color-text-secondary)]">
             Something went wrong. Try refreshing the page, or head back to the dashboard.
           </p>
-          {error.message && (
+          {safeMessage && (
             <p className="text-xs text-red-400 mt-3 font-mono bg-red-500/5 border border-red-500/10 rounded-lg p-3 break-all">
-              {error.message.slice(0, 200)}
+              {safeMessage}
             </p>
           )}
         </div>

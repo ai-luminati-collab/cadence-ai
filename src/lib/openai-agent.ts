@@ -4,6 +4,53 @@ import fs from 'fs'
 import path from 'path'
 import { createClient } from '@supabase/supabase-js'
 
+// ═══════════════════════════════════════════════════════════════
+// ERROR SANITIZATION — Never leak raw API errors to users
+//
+// Maps known API error patterns (billing, auth, rate limits,
+// model errors, network failures) to clean, user-friendly
+// messages. Unknown errors get a generic fallback.
+// ═══════════════════════════════════════════════════════════════
+
+const USER_FRIENDLY_ERRORS: { pattern: RegExp; message: string }[] = [
+  { pattern: /credit balance is too low/i,           message: 'AI service temporarily unavailable. Please try again later.' },
+  { pattern: /insufficient.?funds/i,                 message: 'AI service temporarily unavailable. Please try again later.' },
+  { pattern: /billing/i,                             message: 'AI service temporarily unavailable. Please try again later.' },
+  { pattern: /rate.?limit/i,                         message: 'AI engine is busy. Please wait a moment and try again.' },
+  { pattern: /overloaded/i,                          message: 'AI engine is under heavy load. Please try again in a minute.' },
+  { pattern: /too many requests/i,                   message: 'AI engine is busy. Please wait a moment and try again.' },
+  { pattern: /invalid.?api.?key/i,                   message: 'AI service configuration error. Please contact support.' },
+  { pattern: /authentication/i,                      message: 'AI service configuration error. Please contact support.' },
+  { pattern: /permission/i,                          message: 'AI service configuration error. Please contact support.' },
+  { pattern: /context.?length|too.?long|token.?limit/i, message: 'Content too large for AI processing. Try reducing your input and try again.' },
+  { pattern: /timeout|timed?\s*out|ETIMEDOUT/i,      message: 'AI request timed out. Please try again.' },
+  { pattern: /ECONNREFUSED|ENOTFOUND|network/i,      message: 'Network error connecting to AI service. Check your connection and try again.' },
+  { pattern: /internal.?server.?error|500/i,          message: 'AI service encountered an internal error. Please try again.' },
+  { pattern: /service.?unavailable|503/i,             message: 'AI service is temporarily unavailable. Please try again later.' },
+  { pattern: /not valid JSON|Unexpected token/i,      message: 'AI returned an unexpected response. Please try again.' },
+]
+
+/** Sanitize error messages so raw API details never reach the user */
+function sanitizeAIError(err: any): string {
+  const rawMsg = typeof err === 'string'
+    ? err
+    : err?.message || err?.error?.message || String(err)
+
+  // Log the full error server-side for debugging
+  console.error('🔴 Raw AI Error (sanitized before client):', rawMsg)
+
+  for (const { pattern, message } of USER_FRIENDLY_ERRORS) {
+    if (pattern.test(rawMsg)) return message
+  }
+
+  // Fallback: if the message looks like raw JSON or an API dump, hide it
+  if (rawMsg.startsWith('{') || rawMsg.startsWith('4') || rawMsg.startsWith('5') || rawMsg.length > 200) {
+    return 'AI request failed. Please try again.'
+  }
+
+  return 'AI request failed. Please try again.'
+}
+
 // Claude model fallback chain — tries best first, falls back on 404
 // Model IDs from /v1/models endpoint (Apr 2026)
 const CLAUDE_MODELS = [
@@ -41,8 +88,8 @@ async function callClaudeWithFallback(
         console.warn(`⚠️ Model ${model} not found (404), trying next...`)
         continue
       }
-      // For non-404 errors, throw immediately
-      throw err
+      // For non-404 errors, throw with sanitized message
+      throw new Error(sanitizeAIError(err))
     }
   }
   console.error('❌ All Claude models failed')
@@ -280,7 +327,7 @@ CRITICAL: Return ONLY the final improved output. Same JSON format. No commentary
 
   } catch (e: any) {
      console.error("Agentic Pipeline Failed:", e)
-     throw new Error(e.message || "Unknown OpenAI Agent error.")
+     throw new Error(sanitizeAIError(e))
   }
 }
 
@@ -351,6 +398,6 @@ ${liveAlgoState}
      }
   } catch (e: any) {
      console.error("Premium Pipeline Failed:", e)
-     throw new Error(e.message || "Unknown Claude Premium error.")
+     throw new Error(sanitizeAIError(e))
   }
 }

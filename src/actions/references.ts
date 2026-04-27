@@ -1,5 +1,7 @@
 'use server'
 
+import { safeParseJSON, requireParseJSON, withRetry } from '@/lib/ai-resilience'
+
 import OpenAI from 'openai'
 import { CalendarPost, BrandInfo, Strategy } from '@/stores/brand'
 
@@ -197,7 +199,7 @@ Return ONLY the JSON array, no other text.`
     if (cleaned.endsWith('```')) cleaned = cleaned.slice(0, -3)
     cleaned = cleaned.trim()
 
-    const parsed = JSON.parse(cleaned) as any[]
+    const parsed = requireParseJSON(cleaned) as any[]
 
     return parsed.slice(0, 5).map((ref, i) => ({
       id: `ref-${Date.now()}-${i}`,

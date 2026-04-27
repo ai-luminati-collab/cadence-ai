@@ -1,5 +1,31 @@
 'use server'
 
+// Server-side error message sanitizer for action return values
+function sanitizeActionError(msg: any): string {
+  if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
+  const patterns = [
+    [/credit balance is too low/i, 'AI service temporarily unavailable.'],
+    [/insufficient.?funds/i, 'AI service temporarily unavailable.'],
+    [/billing/i, 'AI service temporarily unavailable.'],
+    [/rate.?limit|too many requests|overloaded/i, 'AI engine is busy. Please try again.'],
+    [/invalid.?api.?key|authentication|permission/i, 'AI service configuration error.'],
+    [/context.?length|too.?long|token.?limit/i, 'Content too large for AI processing.'],
+    [/timeout|timed.?out|ETIMEDOUT/i, 'Request timed out. Please try again.'],
+    [/ECONNREFUSED|ENOTFOUND|network/i, 'Network error. Please try again.'],
+    [/not valid JSON|Unexpected token/i, 'AI returned unexpected response. Please try again.'],
+    [/sk-[a-zA-Z0-9]/i, 'An unexpected error occurred.'],
+  ];
+  for (const [pat, safe] of (patterns as [RegExp, string][])) {
+    if (pat.test(msg)) return safe;
+  }
+  if (msg.startsWith('{') || msg.startsWith('4') || msg.startsWith('5') || msg.length > 200) {
+    return 'An unexpected error occurred.';
+  }
+  return msg;
+}
+
+import { safeParseJSON, requireParseJSON, withRetry } from '@/lib/ai-resilience'
+
 
 import { askExpertAgent } from '@/lib/openai-agent'
 import { extractWebsiteContent } from '@/lib/jina'
@@ -126,7 +152,7 @@ Return STRICTLY as JSON (no markdown wrappers):
 Make EVERY field specific to "${brandName}" — reference their actual products, competitors, and market position. NOT generic marketing copy.`
 
   try {
-    const res = await askExpertAgent(prompt, true, '') // skipReview for 60s timeout
+    const res = await withRetry(() => askExpertAgent(prompt, false, '')) // Boss Review (Stage 2) enabled (maxDuration is 300s)
     if (!res.success) throw new Error("Synthesis failed")
     
     let resultText = res.data.replace(/```json/ig, '').replace(/```/g, '').trim()
@@ -135,10 +161,10 @@ Make EVERY field specific to "${brandName}" — reference their actual products,
     if (firstBrace !== -1 && lastBrace !== -1) {
       resultText = resultText.substring(firstBrace, lastBrace + 1);
     }
-    return { success: true, data: JSON.parse(resultText) }
+    return { success: true, data: requireParseJSON(resultText) }
   } catch (error: any) {
     console.error("Research synthesis failed:", error)
-    return { success: false, error: error.message || "Failed to synthesize research" }
+    return { success: false, error: sanitizeActionError(error.message) || "Failed to synthesize research" }
   }
 }
 
@@ -216,7 +242,7 @@ Make EVERY caption specific to "${name}" — use the brand name, reference the p
 Be specific, not generic. Output must be 100% valid JSON.`
 
   try {
-    const res = await askExpertAgent(prompt, true, '') // skipReview + skip KB
+    const res = await withRetry(() => askExpertAgent(prompt, false, '')) // skipReview + skip KB
     if (!res.success) throw new Error("Research agent failed.")
     
     let resultText = res.data.replace(/```json/ig, '').replace(/```/g, '').trim()
@@ -225,9 +251,9 @@ Be specific, not generic. Output must be 100% valid JSON.`
     if (firstBrace !== -1 && lastBrace !== -1) {
       resultText = resultText.substring(firstBrace, lastBrace + 1);
     }
-    return { success: true, data: JSON.parse(resultText) }
+    return { success: true, data: requireParseJSON(resultText) }
   } catch (error: any) {
     console.error("Brand Research Failed:", error)
-    return { success: false, error: error.message || "Failed to research brand" }
+    return { success: false, error: sanitizeActionError(error.message) || "Failed to research brand" }
   }
 }

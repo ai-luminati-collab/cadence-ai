@@ -5,6 +5,7 @@ import { BarChart3, PieChart, Activity, TrendingUp, Users, ArrowUpRight, Sparkle
 import { useBrandStore } from '@/stores/brand'
 import { useRouter } from 'next/navigation'
 import { generatePredictedPerformance } from '@/actions/analytics'
+import { sanitizeErrorForUI } from '@/lib/error-sanitizer'
 
 export default function AnalyticsPage() {
   const router = useRouter()
@@ -29,10 +30,10 @@ export default function AnalyticsPage() {
         if (res.success && res.data) {
            setPredictedMetrics(res.data)
         } else {
-           setError(res.error || "Forecasting failed.")
+           setError(sanitizeErrorForUI(res.error || 'Forecasting failed.'))
         }
      } catch (e: any) {
-        setError(e.message || "Failed to connect to AI engine.")
+        setError(sanitizeErrorForUI(e?.message || 'AI engine unavailable.'))
      } finally {
         setIsGenerating(false)
      }

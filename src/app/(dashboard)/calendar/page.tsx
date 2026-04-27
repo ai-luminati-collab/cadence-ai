@@ -20,6 +20,7 @@ import { classifyEdit, classifyCopilotInstruction, detectPattern, getPatternKey,
 import { VisualReferences } from '@/components/ui/VisualReferences'
 import { findVisualReferences, researchReferences } from '@/actions/references'
 import type { VisualRef } from '@/stores/brand'
+import { sanitizeErrorForUI } from '@/lib/error-sanitizer'
 
 const PLATFORM_ICONS: Record<string, { icon: any, color: string }> = {
   "Meta (Instagram & Facebook)": { icon: Infinity, color: "text-blue-400" },
@@ -488,10 +489,10 @@ export default function CalendarPage() {
          setTopicals(res.data.map(t => ({ ...t, selected: true, suggestedFormat: 'Static' })))
          setConfigStep('topicals')
       } else {
-         setError(res.error || "Failed to extract topicals")
+         setError(sanitizeErrorForUI(res.error || "Failed to extract topicals"))
       }
     } catch (e: any) {
-      setError("AI Request Failed.")
+      setError(sanitizeErrorForUI("AI Request Failed."))
     } finally {
       setIsExtractingTopicals(false)
     }
@@ -563,22 +564,28 @@ export default function CalendarPage() {
 
        if (!calResponse.ok) {
          const errBody = await calResponse.text().catch(() => 'Unknown server error')
-         throw new Error(`Server error (${calResponse.status}): ${errBody.slice(0, 200)}`)
+         console.error(`Calendar API error (${calResponse.status}):`, errBody.slice(0, 500)); throw new Error(sanitizeErrorForUI(errBody))
        }
 
-       const res = await calResponse.json()
+       let res;
+       try {
+         res = await calResponse.json();
+       } catch (parseErr) {
+         console.error("Calendar response JSON parse failed:", parseErr);
+         throw new Error("Something went wrong. Please try again.");
+       }
 
        if (res.success && res.data) {
           setCalendar(res.data)
           setShowConfig(false)
           setConfigStep('setup')
        } else {
-          setError(res.error || "Generation malfunctioned")
+          setError(sanitizeErrorForUI(res.error || "Generation malfunctioned"))
           setConfigStep('topicals')
        }
     } catch (e: any) {
        console.error('Calendar generation error:', e)
-       setError(e?.message || 'Calendar generation failed. Check your API keys and try again.')
+       setError(sanitizeErrorForUI(e?.message || 'Calendar generation failed. Please try again.'))
        setConfigStep('topicals')
     } finally {
        setIsGeneratingCal(false)
@@ -606,11 +613,11 @@ export default function CalendarPage() {
             saveDraft(postId, res.data)
           }
        } else {
-           showToast('Failed to generate content: ' + res.error, 'error')
+           showToast('Content generation failed. ' + sanitizeErrorForUI(res.error || ''), 'error')
        }
     } catch (e: any) {
         console.error('Content generation error:', e)
-        showToast(e?.message || 'Content generation failed. Check API keys.', 'error')
+        showToast(sanitizeErrorForUI(e?.message || 'Content generation failed.'), 'error')
     } finally {
        setIsGeneratingContent(false)
     }
@@ -634,7 +641,7 @@ export default function CalendarPage() {
         saveDraft(activePost.id, res.data)
         setChatInput('')
       } else {
-        showToast('Chat update failed: ' + res.error, 'error')
+        showToast('Chat update failed. ' + sanitizeErrorForUI(res.error || ''), 'error')
       }
     } catch (e) {
       showToast('Failed to chat.', 'error')
@@ -668,7 +675,7 @@ export default function CalendarPage() {
            showToast('Brilliant edit! Added to AI Knowledge Base.', 'success')
         }
       } else {
-        showToast('Concept iteration failed: ' + res.error, 'error')
+        showToast('Concept iteration failed. ' + sanitizeErrorForUI(res.error || ''), 'error')
       }
     } catch (e) {
       showToast('Failed to iterate concept.', 'error')
@@ -688,11 +695,11 @@ export default function CalendarPage() {
        if (res.success && res.data) {
          updateCalendarPost(activePost.id, { topic: res.data })
        } else {
-         showToast('Reroll failed: ' + res.error, 'error')
+         showToast('Reroll failed. ' + sanitizeErrorForUI(res.error || ''), 'error')
        }
      } catch (e: any) {
         console.error('Reroll error:', e)
-        showToast('Reroll failed: ' + (e?.message || 'Unknown error'), 'error')
+        showToast(sanitizeErrorForUI(e?.message || 'Reroll failed.'), 'error')
      } finally {
         setIsRerolling(false)
      }
@@ -742,10 +749,10 @@ export default function CalendarPage() {
           showToast('Visual generated', 'success')
         }
       } else {
-        showToast('Visual generation failed: ' + result.error, 'error')
+        showToast('Visual generation failed. ' + sanitizeErrorForUI(result.error || ''), 'error')
       }
     } catch (e: any) {
-      showToast('Image generation failed: ' + e.message, 'error')
+      showToast(sanitizeErrorForUI(e?.message || 'Image generation failed.'), 'error')
     } finally {
       setIsGeneratingVisual(false)
       setVisualGenProgress('')

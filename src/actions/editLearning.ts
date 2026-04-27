@@ -1,5 +1,31 @@
 'use server'
 
+// Server-side error message sanitizer for action return values
+function sanitizeActionError(msg: any): string {
+  if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
+  const patterns = [
+    [/credit balance is too low/i, 'AI service temporarily unavailable.'],
+    [/insufficient.?funds/i, 'AI service temporarily unavailable.'],
+    [/billing/i, 'AI service temporarily unavailable.'],
+    [/rate.?limit|too many requests|overloaded/i, 'AI engine is busy. Please try again.'],
+    [/invalid.?api.?key|authentication|permission/i, 'AI service configuration error.'],
+    [/context.?length|too.?long|token.?limit/i, 'Content too large for AI processing.'],
+    [/timeout|timed.?out|ETIMEDOUT/i, 'Request timed out. Please try again.'],
+    [/ECONNREFUSED|ENOTFOUND|network/i, 'Network error. Please try again.'],
+    [/not valid JSON|Unexpected token/i, 'AI returned unexpected response. Please try again.'],
+    [/sk-[a-zA-Z0-9]/i, 'An unexpected error occurred.'],
+  ];
+  for (const [pat, safe] of (patterns as [RegExp, string][])) {
+    if (pat.test(msg)) return safe;
+  }
+  if (msg.startsWith('{') || msg.startsWith('4') || msg.startsWith('5') || msg.length > 200) {
+    return 'An unexpected error occurred.';
+  }
+  return msg;
+}
+
+import { safeParseJSON, requireParseJSON, withRetry } from '@/lib/ai-resilience'
+
 import { askExpertAgent } from '@/lib/openai-agent'
 import { BrandInfo, ContentDraft } from '@/stores/brand'
 
@@ -52,15 +78,15 @@ If the edit is just a typo or formatting fix with no meaningful pattern, return:
 `
 
   try {
-    const res = await askExpertAgent(prompt, true, '') // skipReview for 60s timeout
+    const res = await withRetry(() => askExpertAgent(prompt, false, '')) // Boss Review (Stage 2) enabled (maxDuration is 300s)
     if (!res.success || !res.data) throw new Error("Learning engine failed")
     
-    const parsed = JSON.parse(res.data.replace(/```json/g, '').replace(/```/g, '').trim())
+    const parsed = requireParseJSON(res.data)
     if (!parsed.insight) return { success: true }
     
     return { success: true, data: parsed }
   } catch (error: any) {
-    return { success: false, error: error.message }
+    return { success: false, error: sanitizeActionError(error.message) }
   }
 }
 

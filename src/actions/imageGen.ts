@@ -1,5 +1,30 @@
 'use server'
 
+// Server-side error message sanitizer for action return values
+function sanitizeActionError(msg: any): string {
+  if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
+  const patterns = [
+    [/credit balance is too low/i, 'AI service temporarily unavailable.'],
+    [/insufficient.?funds/i, 'AI service temporarily unavailable.'],
+    [/billing/i, 'AI service temporarily unavailable.'],
+    [/rate.?limit|too many requests|overloaded/i, 'AI engine is busy. Please try again.'],
+    [/invalid.?api.?key|authentication|permission/i, 'AI service configuration error.'],
+    [/context.?length|too.?long|token.?limit/i, 'Content too large for AI processing.'],
+    [/timeout|timed.?out|ETIMEDOUT/i, 'Request timed out. Please try again.'],
+    [/ECONNREFUSED|ENOTFOUND|network/i, 'Network error. Please try again.'],
+    [/not valid JSON|Unexpected token/i, 'AI returned unexpected response. Please try again.'],
+    [/sk-[a-zA-Z0-9]/i, 'An unexpected error occurred.'],
+  ];
+  for (const [pat, safe] of (patterns as [RegExp, string][])) {
+    if (pat.test(msg)) return safe;
+  }
+  if (msg.startsWith('{') || msg.startsWith('4') || msg.startsWith('5') || msg.length > 200) {
+    return 'An unexpected error occurred.';
+  }
+  return msg;
+}
+
+
 import { GoogleGenAI } from '@google/genai'
 import OpenAI from 'openai'
 import { CalendarPost, ContentDraft, BrandInfo, Strategy, BrandAsset, PostReference, FeedAesthetic, VisualGuardrail, VisualRef } from '@/stores/brand'
@@ -236,7 +261,7 @@ export async function generateStaticVisual(
     return { success: true, imageUrl }
   } catch (error: any) {
     console.error('Static visual generation failed:', error)
-    return { success: false, error: error.message || 'Failed to generate static visual' }
+    return { success: false, error: sanitizeActionError(error.message) || 'Failed to generate static visual' }
   }
 }
 
@@ -305,7 +330,7 @@ export async function generateCarouselVisuals(
     return { success: true, imageUrls }
   } catch (error: any) {
     console.error('Carousel generation failed:', error)
-    return { success: false, error: error.message || 'Failed to generate carousel' }
+    return { success: false, error: sanitizeActionError(error.message) || 'Failed to generate carousel' }
   }
 }
 
@@ -342,7 +367,7 @@ export async function generateStoryVisual(
     return { success: true, imageUrl }
   } catch (error: any) {
     console.error('Story generation failed:', error)
-    return { success: false, error: error.message || 'Failed to generate story visual' }
+    return { success: false, error: sanitizeActionError(error.message) || 'Failed to generate story visual' }
   }
 }
 

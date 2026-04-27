@@ -18,6 +18,7 @@ import {
   FileText, Wand2, Trash2
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { sanitizeErrorForUI } from '@/lib/error-sanitizer'
 
 const PLATFORM_ICONS: Record<string, any> = {
   "Meta (Instagram & Facebook)": Infinity, "LinkedIn": Briefcase, "X (Twitter)": MessageSquare,
@@ -373,7 +374,7 @@ export default function OnboardingPage() {
             if (synthRes.success && synthRes.data) {
               applyResearchData(synthRes.data)
             } else {
-              setError(synthRes.error || 'Failed to synthesize research')
+              setError(sanitizeErrorForUI(synthRes.error || 'Failed to synthesize research'))
             }
             setIsResearching(false)
             isResearchingRef.current = false
@@ -402,10 +403,10 @@ export default function OnboardingPage() {
       if (res.success && res.data) {
         applyResearchData(res.data)
       } else {
-        setError(res.error || 'Research failed')
+        setError(sanitizeErrorForUI(res.error || 'Research failed'))
       }
     } catch (e: any) {
-      setError(e.message || 'Research failed')
+      setError(sanitizeErrorForUI(e?.message || 'Research failed'))
     } finally {
       setIsResearching(false)
       isResearchingRef.current = false
@@ -432,10 +433,10 @@ export default function OnboardingPage() {
       if (res.success && res.data) {
         applyResearchData(res.data)
       } else {
-        setError(res.error || 'Quick research failed')
+        setError(sanitizeErrorForUI(res.error || 'Quick research failed'))
       }
     } catch (e: any) {
-      setError(e.message || 'Quick research failed')
+      setError(sanitizeErrorForUI(e?.message || 'Quick research failed'))
     } finally {
       setIsResearching(false)
       isResearchingRef.current = false
@@ -477,7 +478,7 @@ export default function OnboardingPage() {
         }
       }
     } catch (err: any) {
-      setError(err.message || 'Upload failed')
+      setError(sanitizeErrorForUI(err?.message || 'Upload failed'))
     } finally {
       setIsUploading(false)
     }
@@ -547,16 +548,22 @@ export default function OnboardingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ brandInfo: lightFormData }),
       })
-      const response = await res.json()
+      let response;
+      try {
+        response = await res.json();
+      } catch (parseErr) {
+        console.error("Strategy response JSON parse failed:", parseErr);
+        throw new Error("Something went wrong. Please try again.");
+      }
       if (response.success && response.data) {
         setStrategy(response.data)
         if (research) setResearchData(research)
         router.push('/workspace')
       } else {
-        setError(response.error || "Strategy generation failed.")
+        setError(sanitizeErrorForUI(response.error || "Strategy generation failed."))
       }
     } catch (err: any) {
-      setError(err?.message || "An unexpected error occurred.")
+      setError(sanitizeErrorForUI(err?.message || "An unexpected error occurred."))
     } finally {
       setIsGenerating(false)
     }
