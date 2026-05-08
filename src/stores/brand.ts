@@ -123,6 +123,16 @@ export interface UploadedDoc {
   extractedContent?: string // AI-extracted text
 }
 
+// ── Visual Architecture & Brand Universe ──
+export interface BrandUniverse {
+  lightingCode: string       // e.g. "Harsh direct flash, high contrast"
+  compositionCode: string    // e.g. "Subjects dead-center, extreme macro"
+  colorGrading: string       // e.g. "Desaturated greens, warm amber highlights"
+  textureCode: string        // e.g. "Heavy 35mm film grain, soft focus"
+  tgRelatability: string     // e.g. "Use these elements to evoke late-night hustle for 25-34yo founders"
+  negativeRules: string[]    // Top 3 absolute NEVERs for the image AI
+}
+
 // ── AI Evolution Tracking ──
 export interface GenerationEvent {
   postId: string
@@ -194,6 +204,9 @@ export interface BrandInfo {
 
   // Visual Guardrails (AI-derived + user-edited)
   visualGuardrails?: VisualGuardrail[]
+  
+  // The deeply extracted visual + psychological matrix
+  brandUniverse?: BrandUniverse
 }
 
 export interface BrandAsset {

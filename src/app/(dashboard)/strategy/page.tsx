@@ -10,6 +10,7 @@ import { useBrandStore, type BrandAsset } from '@/stores/brand'
 import { useRouter } from 'next/navigation'
 import React, { useEffect, useState, useRef } from 'react'
 import { sanitizeErrorForUI } from '@/lib/error-sanitizer'
+import { parseStreamedResponse } from '@/lib/streaming-fetch'
 
 const PLATFORM_ICONS: Record<string, { icon: any, color: string }> = {
   "Meta (Instagram & Facebook)": { icon: Infinity, color: "text-blue-400" },
@@ -261,20 +262,61 @@ export default function StrategyPage() {
     if (!activeBrand || !brandInfo) return
     setIsRefreshing(true)
     setError(null)
+    const MAX_RETRIES = 2
+    let lastErr: string | null = null
+
     try {
-      const res = await fetch('/api/generate-strategy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brandInfo, isRefresh: true }),
-      })
-      const result = await res.json()
-      if (result.success && result.data) {
-        setStrategy(result.data)
-      } else {
-        setError(sanitizeErrorForUI(result.error || 'Failed to refresh strategy'))
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+          const delay = 3000 * Math.pow(2, attempt - 1) + Math.random() * 1000
+          await new Promise(r => setTimeout(r, delay))
+        }
+
+        let res: Response
+        try {
+          res = await fetch('/api/generate-strategy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ brandInfo, isRefresh: true }),
+          })
+        } catch {
+          lastErr = 'Network error. Please check your connection and try again.'
+          continue
+        }
+
+        if (res.status === 504 || res.status === 502 || res.status === 503) {
+          lastErr = attempt < MAX_RETRIES
+            ? 'AI is taking longer than expected. Retrying...'
+            : 'Strategy refresh timed out. Please try again in a moment.'
+          if (attempt < MAX_RETRIES) continue
+          break
+        }
+
+        if (!res.ok) {
+          let errorMsg = `Server error (${res.status}).`
+          try { const eb = await res.json(); errorMsg = eb?.error || errorMsg } catch {}
+          if (res.status === 500 && attempt < MAX_RETRIES) { lastErr = errorMsg; continue }
+          lastErr = errorMsg
+          break
+        }
+
+        let result
+        try { result = await parseStreamedResponse(res) } catch (e: any) {
+          lastErr = e?.message || 'Received an invalid response. Please try again.'
+          break
+        }
+
+        if (result.success && result.data) {
+          setStrategy(result.data)
+          return
+        } else {
+          lastErr = result.error || 'Failed to refresh strategy'
+          break
+        }
       }
-    } catch (err) {
-      setError("An unexpected error occurred")
+      setError(sanitizeErrorForUI(lastErr || 'Failed to refresh strategy'))
+    } catch (err: any) {
+      setError(sanitizeErrorForUI(err?.message || "An unexpected error occurred"))
     } finally {
       setIsRefreshing(false)
     }

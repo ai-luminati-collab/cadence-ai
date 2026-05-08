@@ -444,12 +444,26 @@ TEXT RENDERING RULES:
 - Strong focal point with visual hierarchy through scale and position`
   }
 
-  // ── Visual Art Direction ──
+  // ── Visual Art Direction & Brand Universe ──
   const visualDirective = params.visualDirective || ''
-  
-  const artDirection = visualDirective 
-    ? `ART DIRECTION: ${visualDirective}`
-    : `ART DIRECTION (DEFAULT - since no specific direction given):
+  let artDirection = ''
+
+  if (brandInfo.brandUniverse) {
+    const bu = brandInfo.brandUniverse
+    artDirection = `=== BRAND UNIVERSE (STRICT VISUAL DNA) ===
+You are restricted to the following design language. Tonality changes are absolutely forbidden.
+- Lighting: ${bu.lightingCode}
+- Composition: ${bu.compositionCode}
+- Color Grading: ${bu.colorGrading}
+- Texture/Feel: ${bu.textureCode}
+- TG Relatability Context (WHY this works): ${bu.tgRelatability}
+
+WARNING: You must apply this exact visual wrapper to the subject matter. Do not invent a new aesthetic.
+========================================`
+  } else {
+    artDirection = visualDirective 
+      ? `ART DIRECTION: ${visualDirective}`
+      : `ART DIRECTION (DEFAULT):
 - Create a premium, editorial-quality image that could appear in a leading magazine ad.
 - Use dramatic, cinematic lighting (golden hour, studio rim lighting, or moody chiaroscuro).
 - Apply a shallow depth-of-field for visual depth where appropriate.
@@ -457,6 +471,7 @@ TEXT RENDERING RULES:
 - Texture: Add tactile quality (grain, fabric texture, food photography macro detail).
 - Mood: Aspirational, confident, warm. NOT clinical or corporate.
 - Color grading: Apply a subtle, cohesive color grade (warm amber, cool teal, or rich chocolate tones).`
+  }
 
   // ── Reference Context ──
   const hasReferences = (brandInfo.brandReferences?.length || 0) > 0
@@ -501,15 +516,18 @@ ${generalRefs.length > 0 ? `- ${generalRefs.length} General refs: Draw creative 
 
   // ── Visual Guardrails (Do's & Don'ts) ──
   let guardrailsBlock = ''
-  if (params.guardrails?.length) {
-    const dos = params.guardrails.filter(g => g.type === 'do' && g.rule.trim()).map(g => `  DO: ${g.rule}`)
-    const donts = params.guardrails.filter(g => g.type === 'dont' && g.rule.trim()).map(g => `  DON'T: ${g.rule}`)
-    if (dos.length > 0 || donts.length > 0) {
-      guardrailsBlock = `\nBRAND VISUAL GUARDRAILS (STRICT):
+  const dos = params.guardrails?.filter(g => g.type === 'do' && g.rule.trim()).map(g => `  DO: ${g.rule}`) || []
+  const donts = params.guardrails?.filter(g => g.type === 'dont' && g.rule.trim()).map(g => `  DON'T: ${g.rule}`) || []
+  
+  if (brandInfo.brandUniverse?.negativeRules) {
+    brandInfo.brandUniverse.negativeRules.forEach(rule => donts.push(`  DON'T (CRITICAL): ${rule}`))
+  }
+
+  if (dos.length > 0 || donts.length > 0) {
+    guardrailsBlock = `\nBRAND VISUAL GUARDRAILS (STRICT):
 ${dos.join('\n')}
 ${donts.join('\n')}
-These rules are derived from the brand's reference images and are NON-NEGOTIABLE.`
-    }
+These rules are derived from the brand's visual DNA and are NON-NEGOTIABLE.`
   }
 
   // ── Layout System (per format) ──
@@ -553,42 +571,34 @@ If the concept references "${params.concept}" and it mentions a product, cross-c
 ══════════════════════════════════════════════════════`
   }
 
-  // ── Assemble Final Prompt ──
-  return `You are a world-class creative director at a premium design agency. Create ${formatSpec} for the brand "${brandInfo.name}" (${brandInfo.industry} industry).
+  // ── Assemble Final Prompt (Subject First, Style Second) ──
+  return `You are a world-class creative director and visual psychologist. Your goal is to create ${formatSpec} for the brand "${brandInfo.name}".
 
-═══ BRAND CONTEXT ═══
-Brand: ${brandInfo.name}
-Industry: ${brandInfo.industry}
-Brand Personality: ${params.persona}
-Content Concept: ${params.concept}
+═══ 1. THE SUBJECT & USAGE STORY (ANCHOR) ═══
+Brand: ${brandInfo.name} (${brandInfo.industry})
+Content Concept (The Scene): ${params.concept}
 Content Pillar: ${params.pillar}
 ${productBlock}
+CRITICAL: Make sure the human element or product usage feels intensely relatable to the target audience. Do not make it abstract or confusing. The subject must be clearly visible and realistic.
 
-═══ DESIGN SYSTEM ═══
-${colorBlock}
-
-${typographyBlock}
-
-═══ CONTENT ═══
-${textBlock}
-
-═══ CREATIVE DIRECTION ═══
+═══ 2. THE BRAND UNIVERSE (VISUAL WRAPPER) ═══
 ${artDirection}
 ${referenceBlock}
 ${aestheticBlock}
-${guardrailsBlock}
+${colorBlock}
 
+═══ 3. TYPOGRAPHY & LAYOUT ═══
 ${layoutGuidance}
+${typographyBlock}
+${textBlock}
 
-═══ NON-NEGOTIABLE RULES ═══
-1. PREMIUM QUALITY - This must look like it was designed by a top creative agency, not a template tool.
-2. NO STOCK PHOTO AESTHETIC - Avoid generic, overly-lit, corporate-feeling imagery.
-3. SCROLL-STOPPING - The image must arrest attention within 0.3 seconds in a busy social media feed.
-4. TEXT LEGIBILITY - If text is present, it MUST be perfectly readable. No exceptions.
-5. BRAND COHERENCE - Colors, mood, and tone must feel like they belong to ${brandInfo.name}.
-6. NO EM DASHES - Never render em dashes, en dashes, or long dashes in any text.
-7. NO WATERMARKS - No watermarks, no "created by AI" labels, no stock photo ID overlays.
-8. NO BORDERS OR FRAMES - The design should be full-bleed, edge to edge.
-9. CAMERA-READY - This image should be publishable without any post-production.
-10. REFERENCE IMAGE FIDELITY - If reference images are provided, they are the PRIMARY source of truth for the product's visual appearance. Match the product shape, color, texture, and plating/presentation EXACTLY. Do not reimagine or reinvent the product.`
+═══ 4. NON-NEGOTIABLE GUARDRAILS ═══
+${guardrailsBlock}
+1. PREMIUM QUALITY - Must look designed by a top agency, not a template tool.
+2. NO STOCK PHOTO AESTHETIC - Avoid generic, evenly-lit, corporate imagery.
+3. SUBJECT TRUMPS STYLE - If the aesthetic rules conflict with making the product visible/usable, prioritize making the product look good and realistic.
+4. BRAND COHERENCE - Colors, mood, and tone must match the Brand Universe exactly. No hallucinations.
+5. NO EM DASHES - Never render em dashes, en dashes, or long dashes in any text.
+6. NO WATERMARKS - No "created by AI" labels, no stock photo ID overlays.
+7. REFERENCE IMAGE FIDELITY - If reference images are provided, they are the PRIMARY source of truth for the product's visual appearance. Match the product shape, color, texture exactly.`
 }

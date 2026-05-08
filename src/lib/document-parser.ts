@@ -1,4 +1,4 @@
-import { GoogleGenAI, createPartFromBase64 } from '@google/genai'
+import { GoogleGenAI } from '@google/genai'
 import { parseOffice, OfficeParserAST, OfficeContentNode } from 'officeparser'
 import JSZip from 'jszip'
 
@@ -160,7 +160,7 @@ async function geminiExtractFromPdf(buffer: Buffer): Promise<string> {
       {
         role: 'user',
         parts: [
-          createPartFromBase64(base64, 'application/pdf'),
+          { inlineData: { data: base64, mimeType: 'application/pdf' } },
           {
             text:
               'Extract every product, menu item, service, package, SKU, or offering described in this document. ' +
@@ -187,7 +187,7 @@ async function geminiExtractFromImage(buffer: Buffer, mimeType: string): Promise
       {
         role: 'user',
         parts: [
-          createPartFromBase64(base64, mimeType),
+          { inlineData: { data: base64, mimeType: mimeType } },
           {
             text:
               'Read this image carefully. Extract every product, menu item, service, price, description, or offering visible. ' +

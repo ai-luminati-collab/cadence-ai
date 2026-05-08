@@ -110,7 +110,7 @@ export async function extractFromText(rawText: string, sourceLabel: string = 'ma
   data?: { products?: ProductEntry[], services?: ServiceEntry[], rawSummary: string }
   error?: string
 }> {
-  const prompt = `You are a product intelligence analyst. Extract ONLY concrete, sellable line-items from this content.
+  const prompt = `You are a world-class product intelligence analyst. Your job is to determine exactly WHAT this brand sells or offers, based on the provided content.
 
 SOURCE: ${sourceLabel}
 
@@ -118,16 +118,16 @@ CONTENT:
 ${rawText.slice(0, 8000)}
 
 TASK:
-1. Identify every distinct PURCHASABLE product or service (real SKUs, menu items, packages, offerings with a clear name).
-2. SKIP all of the following:
-   - Section headers, category labels, navigation items ("Our Menu", "Services", "About Us", "Appetizers", "Main Course")
-   - Marketing taglines, slogans, "why choose us" bullets, testimonials
-   - Generic phrases ("Premium Quality", "Expert Team", "24/7 Support") unless they're an actual offering
-   - Descriptions of the brand itself, the company, or the page
-3. For each real item, extract: name, description, key features, price range (if mentioned), target segment.
-4. Classify each as a "product" (physical/digital good, menu item) or "service" (consulting, SaaS, agency work, etc.).
-5. If unsure whether something is a real offering vs. a header/tagline, SKIP it. Precision > recall.
-6. Write a 2-3 sentence "rawSummary" capturing the overall business model.
+1. Identify the core products, services, SaaS platforms, or offerings. 
+2. BE SMART: Not all brands are e-commerce stores. 
+   - If it's a SaaS company, the platform itself is the product (e.g., "PremAI Platform").
+   - If it's an agency, their core capabilities are the services (e.g., "Performance Marketing", "SEO Audits").
+   - If it's a single-product brand, extract that one flagship product.
+   - If it's a restaurant, extract the main signature items or categories.
+3. For each item, extract: name, description, key features, price range (if mentioned, otherwise "Contact Sales" or "Custom"), and the target segment.
+4. Classify each as a "product" (physical goods, SaaS platforms, digital products) or "service" (consulting, agency work, treatments).
+5. Do NOT skip the core offering just because it lacks a price tag or a "Buy Now" button. If the brand exists to provide it, extract it.
+6. Write a 2-3 sentence "rawSummary" capturing the overall business model (Who they are, what they sell, and to whom).
 
 Return STRICTLY as JSON (no markdown):
 {

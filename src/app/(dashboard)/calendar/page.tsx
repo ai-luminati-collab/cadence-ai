@@ -21,6 +21,7 @@ import { VisualReferences } from '@/components/ui/VisualReferences'
 import { findVisualReferences, researchReferences } from '@/actions/references'
 import type { VisualRef } from '@/stores/brand'
 import { sanitizeErrorForUI } from '@/lib/error-sanitizer'
+import { parseStreamedResponse } from '@/lib/streaming-fetch'
 
 const PLATFORM_ICONS: Record<string, { icon: any, color: string }> = {
   "Meta (Instagram & Facebook)": { icon: Infinity, color: "text-blue-400" },
@@ -562,17 +563,24 @@ export default function CalendarPage() {
          })
        })
 
-       if (!calResponse.ok) {
-         const errBody = await calResponse.text().catch(() => 'Unknown server error')
-         console.error(`Calendar API error (${calResponse.status}):`, errBody.slice(0, 500)); throw new Error(sanitizeErrorForUI(errBody))
+       // Handle gateway errors (Vercel killed the function)
+       if (calResponse.status === 504 || calResponse.status === 502 || calResponse.status === 503) {
+         throw new Error('Calendar generation timed out. The AI engine is under heavy load — please try again.')
        }
 
-       let res;
+       if (!calResponse.ok) {
+         let errMsg = `Server error (${calResponse.status}).`
+         try { errMsg = (await calResponse.json())?.error || errMsg } catch {}
+         throw new Error(sanitizeErrorForUI(errMsg))
+       }
+
+       // Parse streamed response (handles heartbeat whitespace + __JSON__ delimiter)
+       let res: any;
        try {
-         res = await calResponse.json();
-       } catch (parseErr) {
-         console.error("Calendar response JSON parse failed:", parseErr);
-         throw new Error("Something went wrong. Please try again.");
+         res = await parseStreamedResponse(calResponse);
+       } catch (parseErr: any) {
+         console.error("Calendar response parse failed:", parseErr);
+         throw new Error(parseErr?.message || "Something went wrong. Please try again.");
        }
 
        if (res.success && res.data) {

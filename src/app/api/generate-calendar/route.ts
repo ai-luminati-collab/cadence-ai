@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateContentCalendar } from '@/actions/calendar'
 
-// Vercel serverless: allow up to 5 minutes for calendar generation
+// Vercel Hobby plan: 60s max. Pro: 300s.
+// We use streaming with heartbeats to keep the connection alive regardless of plan.
 
 function sanitizeRouteError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -19,55 +20,85 @@ function sanitizeRouteError(msg: any): string {
   return msg;
 }
 
-export const maxDuration = 300
+export const maxDuration = 300 // Capped at 60s on Hobby, 300s on Pro
 
 export async function POST(req: NextRequest) {
+  // Parse request body first (fast, won't timeout)
+  let body: any
   try {
-    const body = await req.json()
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ success: false, error: 'Invalid request body' }, { status: 400 })
+  }
 
-    const {
-      brandInfo,
-      strategy,
-      startDate,
-      endDate,
-      frequency,
-      customEvents,
-      topicals,
-      tractionData,
-      contentMatrix,
-      selectedBuckets,
-      bucketMode
-    } = body
+  const {
+    brandInfo,
+    strategy,
+    startDate,
+    endDate,
+    frequency,
+    customEvents,
+    topicals,
+    tractionData,
+    contentMatrix,
+    selectedBuckets,
+    bucketMode
+  } = body
 
-    if (!brandInfo || !strategy) {
-      return NextResponse.json(
-        { success: false, error: 'Missing brandInfo or strategy' },
-        { status: 400 }
-      )
-    }
-
-    const result = await generateContentCalendar(
-      brandInfo,
-      strategy,
-      startDate,
-      endDate,
-      frequency || 'custom',
-      customEvents || '',
-      topicals || [],
-      tractionData || '',
-      undefined,
-      undefined,
-      contentMatrix,
-      selectedBuckets,
-      bucketMode
-    )
-
-    return NextResponse.json(result)
-  } catch (error: any) {
-    console.error('Calendar API error:', error)
+  if (!brandInfo || !strategy) {
     return NextResponse.json(
-      { success: false, error: sanitizeRouteError(error.message) || 'Calendar generation failed' },
-      { status: 500 }
+      { success: false, error: 'Missing brandInfo or strategy' },
+      { status: 400 }
     )
   }
+
+  // ═══ STREAMING RESPONSE ═══
+  // Send heartbeat whitespace every 5s to keep the connection alive on Vercel Hobby.
+  const encoder = new TextEncoder()
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const heartbeat = setInterval(() => {
+        try { controller.enqueue(encoder.encode(' ')) } catch {}
+      }, 5000)
+
+      try {
+        const result = await generateContentCalendar(
+          brandInfo,
+          strategy,
+          startDate,
+          endDate,
+          frequency || 'custom',
+          customEvents || '',
+          topicals || [],
+          tractionData || '',
+          undefined,
+          undefined,
+          contentMatrix,
+          selectedBuckets,
+          bucketMode
+        )
+        clearInterval(heartbeat)
+        controller.enqueue(encoder.encode('\n__JSON__\n' + JSON.stringify(result)))
+        controller.close()
+      } catch (error: any) {
+        clearInterval(heartbeat)
+        console.error('Calendar API error:', error)
+        const errorPayload = {
+          success: false,
+          error: sanitizeRouteError(error.message) || 'Calendar generation failed'
+        }
+        controller.enqueue(encoder.encode('\n__JSON__\n' + JSON.stringify(errorPayload)))
+        controller.close()
+      }
+    }
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'no-cache, no-store',
+    }
+  })
 }

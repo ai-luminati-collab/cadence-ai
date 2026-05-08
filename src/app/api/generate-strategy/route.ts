@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateBrandStrategy } from '@/actions/strategy'
 
-// Vercel serverless: allow up to 5 minutes for strategy generation (Claude Opus)
+// Vercel Hobby plan: 60s max. Pro: 300s.
+// We use streaming with heartbeats to keep the connection alive regardless of plan.
 
 function sanitizeRouteError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -19,27 +20,58 @@ function sanitizeRouteError(msg: any): string {
   return msg;
 }
 
-export const maxDuration = 300
+export const maxDuration = 300 // Capped at 60s on Hobby, 300s on Pro
 
 export async function POST(req: NextRequest) {
+  // Parse request body first (fast, won't timeout)
+  let body: any
   try {
-    const body = await req.json()
-    const { brandInfo, isRefresh } = body
-
-    if (!brandInfo) {
-      return NextResponse.json(
-        { success: false, error: 'Missing brandInfo' },
-        { status: 400 }
-      )
-    }
-
-    const result = await generateBrandStrategy(brandInfo, isRefresh || false)
-    return NextResponse.json(result)
-  } catch (error: any) {
-    console.error('Strategy API error:', error)
-    return NextResponse.json(
-      { success: false, error: sanitizeRouteError(error.message) || 'Strategy generation failed' },
-      { status: 500 }
-    )
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ success: false, error: 'Invalid request body' }, { status: 400 })
   }
+
+  const { brandInfo, isRefresh } = body
+  if (!brandInfo) {
+    return NextResponse.json({ success: false, error: 'Missing brandInfo' }, { status: 400 })
+  }
+
+  // ═══ STREAMING RESPONSE ═══
+  // Send heartbeat whitespace every 5s to keep the connection alive on Vercel Hobby.
+  // Vercel kills idle connections, but as long as bytes are flowing, the function stays alive.
+  // The actual JSON payload is sent at the very end after a \n__JSON__\n delimiter.
+  const encoder = new TextEncoder()
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const heartbeat = setInterval(() => {
+        try { controller.enqueue(encoder.encode(' ')) } catch {}
+      }, 5000)
+
+      try {
+        const result = await generateBrandStrategy(brandInfo, isRefresh || false)
+        clearInterval(heartbeat)
+        // Delimiter + final JSON payload
+        controller.enqueue(encoder.encode('\n__JSON__\n' + JSON.stringify(result)))
+        controller.close()
+      } catch (error: any) {
+        clearInterval(heartbeat)
+        console.error('Strategy API error:', error)
+        const errorPayload = {
+          success: false,
+          error: sanitizeRouteError(error.message) || 'Strategy generation failed'
+        }
+        controller.enqueue(encoder.encode('\n__JSON__\n' + JSON.stringify(errorPayload)))
+        controller.close()
+      }
+    }
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'no-cache, no-store',
+    }
+  })
 }

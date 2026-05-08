@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { sanitizeErrorForUI } from '@/lib/error-sanitizer'
+import { parseStreamedResponse } from '@/lib/streaming-fetch'
 
 const PLATFORM_ICONS: Record<string, any> = {
   "Meta (Instagram & Facebook)": Infinity, "LinkedIn": Briefcase, "X (Twitter)": MessageSquare,
@@ -542,26 +543,78 @@ export default function OnboardingPage() {
         brandReferences: finalFormData.brandReferences?.map(r => ({ ...r, url: '' })),
         brandAssets: [] 
       } as BrandInfo
-      
-      const res = await fetch('/api/generate-strategy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brandInfo: lightFormData }),
-      })
-      let response;
-      try {
-        response = await res.json();
-      } catch (parseErr) {
-        console.error("Strategy response JSON parse failed:", parseErr);
-        throw new Error("Something went wrong. Please try again.");
+
+      const MAX_RETRIES = 2
+      let lastErr: string | null = null
+
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+          // Exponential backoff: ~3s, ~6s
+          const delay = 3000 * Math.pow(2, attempt - 1) + Math.random() * 1000
+          console.log(`🔄 Strategy retry ${attempt}/${MAX_RETRIES} after ${Math.round(delay)}ms...`)
+          await new Promise(r => setTimeout(r, delay))
+        }
+
+        let res: Response
+        try {
+          res = await fetch('/api/generate-strategy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ brandInfo: lightFormData }),
+          })
+        } catch (networkErr: any) {
+          // Network-level failure (offline, DNS, etc.)
+          lastErr = 'Network error. Please check your connection and try again.'
+          continue
+        }
+
+        // Handle gateway/server errors BEFORE trying to parse
+        // Note: our streaming route returns 200 even on errors (error is in the JSON payload).
+        // But Vercel's gateway can still return 502/503/504 if the function dies.
+        if (res.status === 504 || res.status === 502 || res.status === 503) {
+          console.warn(`⚠️ Gateway error ${res.status} on strategy generation (attempt ${attempt + 1})`)
+          lastErr = 'AI is taking longer than expected. Retrying...'
+          if (attempt < MAX_RETRIES) continue
+          lastErr = 'Strategy generation timed out. The AI engine is under heavy load — please wait a moment and try again.'
+          break
+        }
+
+        if (res.status === 413) {
+          lastErr = 'Brand data is too large. Try removing some uploaded assets and retry.'
+          break
+        }
+
+        if (!res.ok) {
+          let errorMsg = `Server error (${res.status}).`
+          try { errorMsg = (await res.json())?.error || errorMsg } catch {}
+          if (res.status === 500 && attempt < MAX_RETRIES) { lastErr = errorMsg; continue }
+          lastErr = errorMsg
+          break
+        }
+
+        // Parse streamed response (handles heartbeat whitespace + __JSON__ delimiter)
+        let response: any
+        try {
+          response = await parseStreamedResponse(res)
+        } catch (parseErr: any) {
+          console.error("Strategy response parse failed:", parseErr)
+          lastErr = parseErr?.message || 'Received an invalid response from the server. Please try again.'
+          break
+        }
+
+        if (response.success && response.data) {
+          setStrategy(response.data)
+          if (research) setResearchData(research)
+          router.push('/workspace')
+          return // Success — exit the function entirely
+        } else {
+          lastErr = response.error || "Strategy generation failed."
+          break // Don't retry on logical failures
+        }
       }
-      if (response.success && response.data) {
-        setStrategy(response.data)
-        if (research) setResearchData(research)
-        router.push('/workspace')
-      } else {
-        setError(sanitizeErrorForUI(response.error || "Strategy generation failed."))
-      }
+
+      // If we reach here, all attempts failed
+      setError(sanitizeErrorForUI(lastErr || "Strategy generation failed. Please try again."))
     } catch (err: any) {
       setError(sanitizeErrorForUI(err?.message || "An unexpected error occurred."))
     } finally {
