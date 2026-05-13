@@ -185,13 +185,26 @@ function StrategyCard({ title, icon: Icon, iconColor, content, accentBorder, def
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen)
   
-  // Clean points from potential long strings/lists or accidental arrays from AI
-  const safeContent = Array.isArray(content) ? content.join('; ') : (content || '')
+  const safeContent = Array.isArray(content) ? content.join('\n') : (content || '')
   const points = safeContent
-    .split(/(?<=[.!?])\s+|;\s*|\n+|\d+\)\s*/)
-    .map(s => s.trim())
-    .filter(s => s.length > 10)
-    
+    .split(/\n+/)
+    .flatMap(line => {
+      const trimmed = line.trim()
+      if (!trimmed) return []
+      // If line is already a distinct point (starts with bullet, dash, number, or uppercase after split), keep it
+      if (/^[-•*]\s/.test(trimmed)) return [trimmed.replace(/^[-•*]\s+/, '')]
+      if (/^\d+[.)]\s/.test(trimmed)) return [trimmed.replace(/^\d+[.)]\s+/, '')]
+      // Only split on period if followed by uppercase letter (real sentence boundary, not mid-thought)
+      return trimmed.split(/(?<=[.!?])\s+(?=[A-Z])/).filter(s => s.length > 15)
+    })
+    .map(s => {
+      let clean = s.trim().replace(/[,;]+$/, '').trim()
+      if (clean && /^[a-z]/.test(clean)) clean = clean.charAt(0).toUpperCase() + clean.slice(1)
+      if (clean && !/[.!?]$/.test(clean)) clean += '.'
+      return clean
+    })
+    .filter(s => s.length > 15)
+
   const previewPoints = points.slice(0, 3)
   const hasMore = points.length > 3
 
@@ -804,7 +817,27 @@ export default function StrategyPage() {
           {strategy.competitorAnalysis && <StrategyCard title="Competitor Warfare" icon={Swords} iconColor="bg-rose-50 text-rose-500" content={strategy.competitorAnalysis} accentBorder="border-rose-200" />}
           {strategy.psychographicTriggers && <StrategyCard title="Psychographic Triggers" icon={Brain} iconColor="bg-indigo-50 text-indigo-500" content={strategy.psychographicTriggers} accentBorder="border-indigo-200" />}
           {strategy.strategyGrid && <StrategyCard title="Overall Strategy Mechanics" icon={Target} iconColor="bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]" content={strategy.strategyGrid} />}
-          {strategy.riskOpportunityMap && <StrategyCard title="Risk vs. Opportunity" icon={Shield} iconColor="bg-red-50 text-red-500" content={strategy.riskOpportunityMap} />}
+          {strategy.riskOpportunityMap && (() => {
+            const raw = Array.isArray(strategy.riskOpportunityMap) ? strategy.riskOpportunityMap.join('\n') : (strategy.riskOpportunityMap || '')
+            const points = raw
+              .split(/\n+/)
+              .flatMap(line => {
+                const t = line.trim().replace(/^[-•*]\s+/, '').replace(/^\d+[.)]\s+/, '')
+                if (!t) return []
+                return t.split(/(?<=[.!?])\s+(?=[A-Z])/).filter(s => s.length > 15)
+              })
+              .map(s => s.trim())
+              .filter(s => s.length > 15)
+            const risks = points.filter(p => /threat|risk|danger|weakness|challenge|compete|crowded|losing|behind|vulnerable|biggest|over-index/i.test(p))
+            const opps = points.filter(p => /opportunit|advantage|untapped|whitespace|gap|underserved|emerging|potential|leverage|own|wedge|strongest|discover/i.test(p))
+            const unmatched = points.filter(p => !risks.includes(p) && !opps.includes(p))
+            const riskList = [...risks, ...unmatched.slice(0, Math.ceil(unmatched.length / 2))]
+            const oppList = [...opps, ...unmatched.slice(Math.ceil(unmatched.length / 2))]
+            return (<>
+              {riskList.length > 0 && <StrategyCard title="Immediate Threats" icon={Shield} iconColor="bg-red-50 text-red-500" content={riskList.join('\n')} accentBorder="border-red-200" />}
+              {oppList.length > 0 && <StrategyCard title="Untapped Opportunities" icon={Zap} iconColor="bg-emerald-50 text-emerald-500" content={oppList.join('\n')} accentBorder="border-emerald-200" />}
+            </>)
+          })()}
         </div>
       </div>
 
