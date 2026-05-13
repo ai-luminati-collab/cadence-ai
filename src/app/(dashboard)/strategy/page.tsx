@@ -10,6 +10,8 @@ import { useBrandStore, type BrandAsset } from '@/stores/brand'
 import { useRouter } from 'next/navigation'
 import React, { useEffect, useState, useRef } from 'react'
 import { sanitizeErrorForUI } from '@/lib/error-sanitizer'
+import { useBrandOSSignals } from '@/hooks/useBrandOSSignals'
+import { BrandOSEvolution } from '@/components/BrandOSEvolution'
 import { parseStreamedResponse } from '@/lib/streaming-fetch'
 
 const PLATFORM_ICONS: Record<string, { icon: any, color: string }> = {
@@ -244,13 +246,16 @@ function StrategyCard({ title, icon: Icon, iconColor, content, accentBorder, def
 
 export default function StrategyPage() {
   const router = useRouter()
-  const { brands, activeBrandId, setStrategy, setBrandInfo, addPendingInsight, setToneFingerprint, setLastKbAudit } = useBrandStore()
+  const { brands, activeBrandId, setStrategy, setBrandInfo, addPendingInsight, setToneFingerprint, setLastKbAudit, mergeSocialStrategy } = useBrandStore()
+  const signals = useBrandOSSignals() // Brand OS Evolution Engine
   const [mounted, setMounted] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isAnalyzingRefs, setIsAnalyzingRefs] = useState(false)
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null)
+  const [isGeneratingSocial, setIsGeneratingSocial] = useState(false)
+  const [socialError, setSocialError] = useState<string | null>(null)
 
   const activeBrand = activeBrandId ? brands[activeBrandId] : null
   const strategy = activeBrand?.strategy
@@ -274,7 +279,7 @@ export default function StrategyPage() {
 
         let res: Response
         try {
-          res = await fetch('/api/generate-strategy', {
+          res = await fetch('/api/generate-marketing-strategy', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ brandInfo, isRefresh: true }),
@@ -370,6 +375,91 @@ export default function StrategyPage() {
     const existing = brandInfo[field] || []
     setBrandInfo({ ...brandInfo, [field]: existing.filter(a => a.id !== assetId) })
   }
+
+  const handleUnlockSocialStrategy = async () => {
+    if (!activeBrand || !brandInfo || !strategy) return
+    setIsGeneratingSocial(true)
+    setSocialError(null)
+
+    try {
+      // Strip base64 from brandInfo before sending
+      const lightBrandInfo = {
+        ...brandInfo,
+        brandReferences: brandInfo.brandReferences?.map(r => ({ ...r, url: '' })),
+        brandAssets: [],
+      }
+
+      const marketingContext = {
+        oneLineStrategy: strategy.oneLineStrategy,
+        targetAudience: strategy.targetAudience,
+        persona: strategy.persona,
+        coreNarratives: strategy.coreNarratives,
+        competitorAnalysis: strategy.competitorAnalysis,
+        psychographicTriggers: strategy.psychographicTriggers,
+        strategicPatterns: strategy.strategicPatterns,
+      }
+
+      const MAX_RETRIES = 2
+      let lastErr: string | null = null
+
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+          const delay = 3000 * Math.pow(2, attempt - 1) + Math.random() * 1000
+          await new Promise(r => setTimeout(r, delay))
+        }
+
+        let res: Response
+        try {
+          res = await fetch('/api/generate-social-strategy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ brandInfo: lightBrandInfo, marketingStrategy: marketingContext }),
+          })
+        } catch {
+          lastErr = 'Network error. Please check your connection.'
+          continue
+        }
+
+        if (res.status === 504 || res.status === 502 || res.status === 503) {
+          lastErr = attempt < MAX_RETRIES ? 'AI is taking longer than expected. Retrying...' : 'Timed out. Please try again.'
+          if (attempt < MAX_RETRIES) continue
+          break
+        }
+
+        if (!res.ok) {
+          let errorMsg = `Server error (${res.status}).`
+          try { errorMsg = (await res.json())?.error || errorMsg } catch {}
+          if (res.status === 500 && attempt < MAX_RETRIES) { lastErr = errorMsg; continue }
+          lastErr = errorMsg
+          break
+        }
+
+        let result: any
+        try { result = await parseStreamedResponse(res) } catch (e: any) {
+          lastErr = e?.message || 'Invalid response. Please try again.'
+          break
+        }
+
+        if (result.success && result.data) {
+          mergeSocialStrategy(result.data)
+          setSocialError(null)
+          return
+        } else {
+          lastErr = result.error || 'Failed to generate social strategy'
+          if (attempt < MAX_RETRIES && /unavailable|busy|timed out/i.test(lastErr || '')) continue
+          break
+        }
+      }
+
+      setSocialError(sanitizeErrorForUI(lastErr || 'Failed to generate social strategy'))
+    } catch (err: any) {
+      setSocialError(sanitizeErrorForUI(err?.message || 'An unexpected error occurred'))
+    } finally {
+      setIsGeneratingSocial(false)
+    }
+  }
+
+  const socialStrategyGenerated = activeBrand?.socialStrategyGenerated || false
 
   if (!mounted) return null
   if (!activeBrand || !brandInfo) {
@@ -642,6 +732,9 @@ export default function StrategyPage() {
          )}
        </div>
 
+      {/* ═══ Brand OS Evolution Engine ═══ */}
+      <BrandOSEvolution />
+
       <div className="grid grid-cols-1 gap-8 mt-8">
         {/* ═══ SECTION 3: Quick Pulse ═══ */}
         <div className="space-y-6">
@@ -656,12 +749,14 @@ export default function StrategyPage() {
               fieldKey="primaryGoals"
               isArray={true}
               onSave={(val) => {
+                const oldVal = brandInfo.primaryGoals?.join(', ') || ''
                 setBrandInfo({ ...brandInfo, primaryGoals: val.split(',').map((s: string) => s.trim()).filter(Boolean) })
+                signals.logProfileFieldChange('primaryGoals', `Goals changed from "${oldVal}" to "${val}"`)
               }}
             />
-            
+
             {/* Visual Vibe - Expandable */}
-            <TacticalCard 
+            <TacticalCard
               title="Visual Vibe"
               iconBg="bg-indigo-50"
               icon={<Palette className="w-4 h-4 text-indigo-500" />}
@@ -675,12 +770,14 @@ export default function StrategyPage() {
                 </div>
               }
               onSave={(val) => {
+                const oldVal = brandInfo.tone?.join(', ') || ''
                 setBrandInfo({ ...brandInfo, tone: val.split(',').map((s: string) => s.trim()).filter(Boolean) })
+                signals.logProfileFieldChange('tone', `Tone changed from "${oldVal}" to "${val}"`)
               }}
             />
 
             {/* Target Platforms - Expandable */}
-            <TacticalCard 
+            <TacticalCard
               title="Target Platforms"
               iconBg="bg-emerald-50"
               icon={<Globe className="w-4 h-4 text-emerald-500" />}
@@ -688,7 +785,9 @@ export default function StrategyPage() {
               fieldKey="platforms"
               isArray={true}
               onSave={(val) => {
+                const oldVal = brandInfo.platforms?.join(', ') || ''
                 setBrandInfo({ ...brandInfo, platforms: val.split(',').map((s: string) => s.trim()).filter(Boolean) })
+                signals.logProfileFieldChange('platforms', `Platforms changed from "${oldVal}" to "${val}"`)
               }}
             />
           </div>
@@ -709,10 +808,56 @@ export default function StrategyPage() {
         </div>
       </div>
 
-      {/* ═══ SECTION 5: Platform Ecosystem Playbooks ═══ */}
+      {/* ═══ SECTION 5: Social Media Strategy (Phase 2 — Unlockable) ═══ */}
       <div className="mt-12 pt-8 border-t border-[var(--color-border-subtle)]">
-        <h2 className="text-xs font-black text-blue-500 uppercase tracking-widest mb-4">Phase 1: Platform Ecosystem Playbooks</h2>
-        
+
+        {!socialStrategyGenerated ? (
+          /* ── LOCKED STATE: Unlock Social Media Strategy ── */
+          <div className="relative overflow-hidden rounded-3xl border-2 border-dashed border-[var(--color-accent-500)]/40 bg-gradient-to-br from-[var(--color-accent-900)]/5 to-blue-900/5 p-10 text-center">
+            <div className="absolute top-0 right-0 w-72 h-72 bg-[var(--color-accent-500)]/5 blur-[100px] -mr-36 -mt-36 rounded-full" />
+            <div className="absolute bottom-0 left-0 w-56 h-56 bg-blue-500/5 blur-[80px] -ml-28 -mb-28 rounded-full" />
+
+            <div className="relative z-10 max-w-lg mx-auto">
+              <div className="w-16 h-16 bg-[var(--color-accent-600)]/20 rounded-2xl flex items-center justify-center mx-auto mb-5 border border-[var(--color-accent-500)]/30">
+                <Zap className="w-8 h-8 text-[var(--color-accent-400)]" />
+              </div>
+              <h2 className="text-2xl font-black text-[var(--color-text-primary)] mb-3">Unlock Social Media Strategy</h2>
+              <p className="text-sm text-[var(--color-text-secondary)] mb-2 leading-relaxed">
+                Your marketing strategy is ready. Now generate your platform-specific playbooks, content pillars, and Brand OS compilation.
+              </p>
+              <p className="text-xs text-[var(--color-text-muted)] mb-8">
+                This builds on your Phase 1 strategy to create platform playbooks, content pillars with posting cadence, and anti-pattern checklists tailored to each platform.
+              </p>
+
+              {socialError && (
+                <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 text-xs font-bold mb-5 flex items-center gap-2">
+                  <RefreshCw className="w-3.5 h-3.5" /> {socialError}
+                </div>
+              )}
+
+              <button
+                onClick={handleUnlockSocialStrategy}
+                disabled={isGeneratingSocial}
+                className="px-10 py-4 bg-[var(--color-accent-600)] hover:bg-[var(--color-accent-500)] text-white rounded-2xl font-black text-sm uppercase tracking-wider transition-all shadow-lg hover:shadow-xl disabled:opacity-50 flex items-center gap-3 mx-auto"
+              >
+                {isGeneratingSocial ? (
+                  <><RefreshCw className="w-5 h-5 animate-spin" /> Generating Social Strategy...</>
+                ) : (
+                  <><Sparkles className="w-5 h-5" /> Generate Social Media Strategy</>
+                )}
+              </button>
+
+              {isGeneratingSocial && (
+                <p className="text-xs text-[var(--color-text-muted)] mt-4 animate-pulse">
+                  Building platform playbooks and content pillars... This takes 30-60 seconds.
+                </p>
+              )}
+            </div>
+          </div>
+        ) : (
+        <>
+        <h2 className="text-xs font-black text-blue-500 uppercase tracking-widest mb-4">Social Media Playbooks</h2>
+
         {strategy.platformPlaybooks && Object.keys(strategy.platformPlaybooks).length > 0 ? (
            <div className="grid grid-cols-1 gap-6">
               {Object.entries(strategy.platformPlaybooks).map(([platform, playbook]) => (
@@ -870,6 +1015,8 @@ export default function StrategyPage() {
             </div>
           )
         })()}
+      </>
+        )}
       </div>
 
       {/* ═══ SECTION 6: Brand Media Library ═══ */}

@@ -293,9 +293,24 @@ export default function OnboardingPage() {
   // --- AI Research (Deep Research with fallback) ---
   const applyResearchData = (data: BrandResearch) => {
     setResearch(data)
+
+    // Auto-populate brand name & industry if research discovered them
+    if (data.brandName && !formData.name) updateForm('name', data.brandName)
+    if (data.industry && !formData.industry) updateForm('industry', data.industry)
+
+    // Step 2: Audience & Goals
     if (data.discoveredAudiences?.length) updateForm('primaryAudiences', data.discoveredAudiences.slice(0, 3))
     if (data.discoveredGoals?.length) updateForm('primaryGoals', data.discoveredGoals.slice(0, 3))
+    if (data.audienceInsight && !formData.ageRange) updateForm('ageRange', data.audienceInsight)
+    if (data.discoveredAudiences?.length > 3 && !formData.secondaryAudience) {
+      updateForm('secondaryAudience', data.discoveredAudiences.slice(3).join(', '))
+    }
+
+    // Step 3: Brand Voice & Communication Style
     if (data.suggestedTone?.length) updateForm('tone', data.suggestedTone.slice(0, 3))
+    if (data.communicationStyle) updateForm('communicationStyle', data.communicationStyle)
+
+    // Step 4: Platforms & Content Frequency
     if (data.suggestedPlatforms?.length) {
       // Normalize AI-returned strings (e.g. "Instagram", "facebook") to MASTER_PLATFORM_LIBRARY entries
       // so Step 1 checkbox state + Step 5 frequency mapping line up.
@@ -319,7 +334,25 @@ export default function OnboardingPage() {
       ))
       data.suggestedPlatforms = normalized
       updateForm('platforms', normalized)
+
+      // Auto-populate content frequency per platform from research
+      if (data.contentFrequency && normalized.length > 0) {
+        const freqMap = normalized.reduce((acc: Record<string, string>, p: string) => {
+          acc[p] = data.contentFrequency!
+          return acc
+        }, {})
+        updateForm('contentFrequency', freqMap)
+      }
     }
+
+    // Step 5: Visual DNA & Psychographics
+    if (data.visualDirective) updateForm('visualDirective', data.visualDirective)
+    if (data.psychographicTriggers) updateForm('psychographics', data.psychographicTriggers)
+
+    // Step 6: USP & Competitor Intelligence
+    if (data.uspHypothesis) updateForm('usp', data.uspHypothesis)
+    if (data.competitorAnalysis) updateForm('competitors', data.competitorAnalysis)
+
     // Auto-populate core products from research (user can edit later)
     if (data.coreProducts?.length && !(formData.coreProducts?.length)) {
       updateForm('coreProducts', data.coreProducts)
@@ -332,83 +365,106 @@ export default function OnboardingPage() {
     setError(null)
     setResearchElapsed(0)
 
-    try {
-      // Try Deep Research first
-      const startRes = await startBrandDeepResearch(
-        formData.name || '', 
-        formData.industry || '',
-        formData.website,
-        formData.extraNotes
-      )
+    // Start timer immediately — works for both deep and fallback paths
+    if (timerRef.current) clearInterval(timerRef.current)
+    timerRef.current = setInterval(() => setResearchElapsed(prev => prev + 1), 1000)
 
-      if (startRes.success && startRes.interactionId) {
-        setDeepResearchId(startRes.interactionId)
-        // Start elapsed timer
-        timerRef.current = setInterval(() => setResearchElapsed(prev => prev + 1), 1000)
-        
-        // Poll for completion
-        let attempts = 0
-        const maxAttempts = 120 // 120 * 10s = 20 min max
-        while (attempts < maxAttempts) {
-          if (!isResearchingRef.current) {
-            if (timerRef.current) clearInterval(timerRef.current)
-            return // Component unmounted or cancelled
-          }
-          await new Promise(r => setTimeout(r, 10000)) // Wait 10 seconds
-          attempts++
-          
-          if (!isResearchingRef.current) return; // Check again after await
-          
-          const status = await pollDeepResearch(startRes.interactionId)
-          
-          if (status.status === 'completed' && status.report) {
-            if (timerRef.current) clearInterval(timerRef.current)
-            console.log('🔬 Deep Research complete! Synthesizing...')
-            
-            // Synthesize raw report into structured data using GPT-5.4
-            const synthRes = await synthesizeResearchReport(
-              status.report,
-              formData.name || '',
-              formData.industry || ''
-            )
-            
-            if (synthRes.success && synthRes.data) {
-              applyResearchData(synthRes.data)
-            } else {
-              setError(sanitizeErrorForUI(synthRes.error || 'Failed to synthesize research'))
+    // Helper: run quick research (Claude Opus → GPT-5.5 fallback)
+    const runQuickResearch = async (): Promise<boolean> => {
+      try {
+        console.log('⚡ Running quick research...')
+        const res = await researchBrand(
+          formData.name || '', formData.industry || '',
+          formData.website, formData.extraNotes
+        )
+        if (res.success && res.data) {
+          applyResearchData(res.data)
+          return true
+        }
+      } catch (err) {
+        console.error('Quick research threw:', err)
+      }
+      return false
+    }
+
+    try {
+      // ──────────────────────────────────────────────
+      // LAYER 1: Gemini Deep Research (best quality)
+      // ──────────────────────────────────────────────
+      let deepResearchWorked = false
+      try {
+        const startRes = await startBrandDeepResearch(
+          formData.name || '', formData.industry || '',
+          formData.website, formData.extraNotes
+        )
+
+        if (startRes.success && startRes.interactionId) {
+          setDeepResearchId(startRes.interactionId)
+
+          let attempts = 0
+          const maxAttempts = 120
+          while (attempts < maxAttempts) {
+            if (!isResearchingRef.current) return
+            await new Promise(r => setTimeout(r, 10000))
+            attempts++
+            if (!isResearchingRef.current) return
+
+            const status = await pollDeepResearch(startRes.interactionId)
+
+            if (status.status === 'completed' && status.report) {
+              console.log('🔬 Deep Research complete! Synthesizing...')
+              try {
+                const synthRes = await synthesizeResearchReport(
+                  status.report, formData.name || '', formData.industry || ''
+                )
+                if (synthRes.success && synthRes.data) {
+                  applyResearchData(synthRes.data)
+                  deepResearchWorked = true
+                }
+              } catch (synthErr) {
+                console.warn('⚠️ Synthesis threw:', synthErr)
+              }
+              break
             }
-            setIsResearching(false)
-            isResearchingRef.current = false
-            setDeepResearchId(null)
-            return
-          }
-          
-          if (status.status === 'failed') {
-            if (timerRef.current) clearInterval(timerRef.current)
-            console.warn('⚠️ Deep Research failed, falling back to quick research...')
-            break // Fall through to quick research
+
+            if (status.status === 'failed') {
+              console.warn('⚠️ Deep Research failed')
+              break
+            }
           }
         }
-        
-        if (timerRef.current) clearInterval(timerRef.current)
+      } catch (deepErr) {
+        console.warn('⚠️ Deep Research init failed:', deepErr)
       }
-      
-      // Fallback: Quick research (if Deep Research failed or wasn't available)
-      console.log('⚡ Running quick research fallback...')
-      const res = await researchBrand(
-        formData.name || '', 
-        formData.industry || '',
-        formData.website,
-        formData.extraNotes
-      )
-      if (res.success && res.data) {
-        applyResearchData(res.data)
-      } else {
-        setError(sanitizeErrorForUI(res.error || 'Research failed'))
+
+      if (deepResearchWorked) {
+        setError(null)
+        return // Done — best quality path succeeded
       }
+
+      // ──────────────────────────────────────────────
+      // LAYER 2: Quick research (Claude Opus → GPT-5.5)
+      // ──────────────────────────────────────────────
+      console.log('⚠️ Deep research did not produce results, trying quick research...')
+      setDeepResearchId(null)
+      const quickWorked = await runQuickResearch()
+
+      if (quickWorked) {
+        setError(null)
+        return
+      }
+
+      // ──────────────────────────────────────────────
+      // LAYER 3: Last resort — show retry, never crash
+      // ──────────────────────────────────────────────
+      console.error('❌ All research paths exhausted')
+      setError('Research is temporarily unavailable. Please click Retry Research.')
+
     } catch (e: any) {
-      setError(sanitizeErrorForUI(e?.message || 'Research failed'))
+      console.error('Research top-level error:', e)
+      setError('Research is temporarily unavailable. Please click Retry Research.')
     } finally {
+      if (timerRef.current) clearInterval(timerRef.current)
       setIsResearching(false)
       isResearchingRef.current = false
       setDeepResearchId(null)
@@ -416,28 +472,26 @@ export default function OnboardingPage() {
   }
 
   const cancelDeepResearch = async () => {
-    // Cancel deep research and switch to quick
     if (timerRef.current) clearInterval(timerRef.current)
-    isResearchingRef.current = false // Stops the polling loop
+    isResearchingRef.current = false
     setDeepResearchId(null)
     setResearchElapsed(0)
+    setError(null)
     setIsResearching(true)
-    
-    // Start fresh fallback
+
     try {
       const res = await researchBrand(
-        formData.name || '', 
-        formData.industry || '',
-        formData.website,
-        formData.extraNotes
+        formData.name || '', formData.industry || '',
+        formData.website, formData.extraNotes
       )
       if (res.success && res.data) {
         applyResearchData(res.data)
+        setError(null)
       } else {
-        setError(sanitizeErrorForUI(res.error || 'Quick research failed'))
+        setError('Quick research unavailable. Please try again.')
       }
-    } catch (e: any) {
-      setError(sanitizeErrorForUI(e?.message || 'Quick research failed'))
+    } catch {
+      setError('Quick research unavailable. Please try again.')
     } finally {
       setIsResearching(false)
       isResearchingRef.current = false
@@ -532,6 +586,10 @@ export default function OnboardingPage() {
       extraNotes: [formData.extraNotes, clarifyNotes].filter(Boolean).join('\n\n')
     } as BrandInfo
 
+    // Set onboarding timestamp for Brand OS Evolution Engine
+    finalFormData.onboardedAt = new Date().toISOString()
+    finalFormData.learningPhase = 'calibration'
+
     createBrand(brandId, finalFormData)
     setOnboardingPath('ai')
 
@@ -557,7 +615,7 @@ export default function OnboardingPage() {
 
         let res: Response
         try {
-          res = await fetch('/api/generate-strategy', {
+          res = await fetch('/api/generate-marketing-strategy', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ brandInfo: lightFormData }),
@@ -605,15 +663,20 @@ export default function OnboardingPage() {
         if (response.success && response.data) {
           setStrategy(response.data)
           if (research) setResearchData(research)
-          router.push('/workspace')
+          setError(null)
+          router.push('/strategy')
           return // Success — exit the function entirely
         } else {
+          console.error('❌ Strategy response not successful:', response.error)
           lastErr = response.error || "Strategy generation failed."
-          break // Don't retry on logical failures
+          // Retry on AI service errors, don't retry on logical failures
+          if (attempt < MAX_RETRIES && /unavailable|busy|timed out|configuration/i.test(lastErr || '')) continue
+          break
         }
       }
 
       // If we reach here, all attempts failed
+      console.error('❌ All strategy attempts failed:', lastErr)
       setError(sanitizeErrorForUI(lastErr || "Strategy generation failed. Please try again."))
     } catch (err: any) {
       setError(sanitizeErrorForUI(err?.message || "An unexpected error occurred."))
@@ -929,6 +992,7 @@ export default function OnboardingPage() {
 
               <div className="space-y-2">
                 <label className="text-sm font-bold uppercase tracking-wider text-slate-500">Secondary Audience (optional)</label>
+                <p className="text-[11px] text-slate-400">AI may have filled this from research. Edit or add your own niche segment.</p>
                 <div className="flex flex-wrap gap-2">
                   <AskAIButton fieldName="Secondary Audience" fieldDescription="A niche secondary audience segment beyond the primary archetypes" context={aiContext} onSelect={v => updateForm('secondaryAudience', v)} currentValue={formData.secondaryAudience} />
                   <ExpandAIButton fieldName="Secondary Audience" fieldDescription="Expand the secondary audience description" context={aiContext} currentValue={formData.secondaryAudience || ''} onExpand={v => updateForm('secondaryAudience', v)} />
@@ -1093,7 +1157,7 @@ export default function OnboardingPage() {
               <div className="space-y-4 pt-6 border-t border-slate-100">
                 <label className="text-sm font-bold uppercase tracking-wider text-slate-500">What Do You Sell?</label>
                 <p className="text-xs text-slate-400">Help the AI understand your products/services so content references real features, not generic fluff.</p>
-                
+
                 {/* Brand Type Selector */}
                 <div className="flex gap-3">
                   {(['product', 'service', 'hybrid'] as const).map(type => (
@@ -1105,100 +1169,13 @@ export default function OnboardingPage() {
                   ))}
                 </div>
 
-                {/* Product Entries */}
-                {(formData.brandType === 'product' || formData.brandType === 'hybrid') && (
-                  <div className="space-y-3 p-4 bg-blue-50/50 border border-blue-100 rounded-xl">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-black text-blue-700 uppercase tracking-widest">Product Catalog</span>
-                      <button type="button" onClick={() => {
-                        const catalog = [...(formData.productCatalog || []), { name: '', description: '', features: [], priceRange: '', targetSegment: '' }]
-                        updateForm('productCatalog', catalog)
-                      }} className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1">
-                        <Plus className="w-3 h-3" /> Add Product
-                      </button>
-                    </div>
-                    {(formData.productCatalog || []).map((product, idx) => (
-                      <div key={idx} className="p-3 bg-white rounded-lg border border-blue-200 space-y-2">
-                        <div className="flex items-center gap-2">
-                          <input value={product.name} onChange={e => {
-                            const catalog = [...(formData.productCatalog || [])]
-                            catalog[idx] = { ...catalog[idx], name: e.target.value }
-                            updateForm('productCatalog', catalog)
-                          }} placeholder="Product name" className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 focus:border-blue-400 focus:outline-none" />
-                          <button type="button" onClick={() => {
-                            const catalog = [...(formData.productCatalog || [])]
-                            catalog.splice(idx, 1)
-                            updateForm('productCatalog', catalog)
-                          }} className="p-1 text-slate-400 hover:text-red-500"><X className="w-4 h-4" /></button>
-                        </div>
-                        <textarea value={product.description} onChange={e => {
-                          const catalog = [...(formData.productCatalog || [])]
-                          catalog[idx] = { ...catalog[idx], description: e.target.value }
-                          updateForm('productCatalog', catalog)
-                        }} placeholder="Quick description + key features (or we'll extract from URL)" rows={2} className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-blue-400 focus:outline-none resize-none" />
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Service Entries */}
-                {(formData.brandType === 'service' || formData.brandType === 'hybrid') && (
-                  <div className="space-y-3 p-4 bg-emerald-50/50 border border-emerald-100 rounded-xl">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-black text-emerald-700 uppercase tracking-widest">Service Offerings</span>
-                      <button type="button" onClick={() => {
-                        const services = [...(formData.serviceOfferings || []), { name: '', description: '', deliverables: [], targetSegment: '' }]
-                        updateForm('serviceOfferings', services)
-                      }} className="text-xs font-bold text-emerald-600 hover:text-emerald-800 flex items-center gap-1">
-                        <Plus className="w-3 h-3" /> Add Service
-                      </button>
-                    </div>
-                    {(formData.serviceOfferings || []).map((service, idx) => (
-                      <div key={idx} className="p-3 bg-white rounded-lg border border-emerald-200 space-y-2">
-                        <div className="flex items-center gap-2">
-                          <input value={service.name} onChange={e => {
-                            const services = [...(formData.serviceOfferings || [])]
-                            services[idx] = { ...services[idx], name: e.target.value }
-                            updateForm('serviceOfferings', services)
-                          }} placeholder="Service name" className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 focus:border-emerald-400 focus:outline-none" />
-                          <button type="button" onClick={() => {
-                            const services = [...(formData.serviceOfferings || [])]
-                            services.splice(idx, 1)
-                            updateForm('serviceOfferings', services)
-                          }} className="p-1 text-slate-400 hover:text-red-500"><X className="w-4 h-4" /></button>
-                        </div>
-                        <textarea value={service.description} onChange={e => {
-                          const services = [...(formData.serviceOfferings || [])]
-                          services[idx] = { ...services[idx], description: e.target.value }
-                          updateForm('serviceOfferings', services)
-                        }} placeholder="What you deliver + key deliverables" rows={2} className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-emerald-400 focus:outline-none resize-none" />
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Product Page URL Extractor */}
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-500">Product/Service Page URL (AI will extract)</label>
-                  <div className="flex gap-2">
-                    <input 
-                      value={formData.productPageUrls?.join(', ') || ''} 
-                      onChange={e => updateForm('productPageUrls', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
-                      placeholder="https://yoursite.com/products, https://yoursite.com/services" 
-                      className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 focus:border-blue-400 focus:outline-none" 
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-400">Paste your product page link and our AI will extract features, pricing, and USPs automatically during strategy generation.</p>
-                </div>
-
-                {/* ── Smart Product Importer (Gemini vision) ── */}
-                <div className="rounded-2xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 p-4 space-y-4">
+                {/* AI Auto-Import — single unified section */}
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/40 p-4 space-y-4">
                   <div className="flex items-center gap-2">
                     <Wand2 className="w-4 h-4 text-emerald-600" />
-                    <span className="text-sm font-bold text-emerald-700">AI Auto-Import</span>
-                    <span className="text-[10px] uppercase tracking-wider text-emerald-600/70">Gemini 2.5 Pro Vision</span>
+                    <span className="text-sm font-bold text-slate-700">Import Products & Services</span>
                   </div>
-                  <p className="text-xs text-slate-500">Drop pitch decks, menus, product catalogs, or brochures. We'll read every image, photo, and scan — then auto-fill your product list.</p>
+                  <p className="text-xs text-slate-500">Drop files or paste URLs — AI will extract your full product/service catalog automatically.</p>
 
                   {/* File dropzone */}
                   <label
@@ -1210,10 +1187,10 @@ export default function OnboardingPage() {
                       const picked = Array.from(e.dataTransfer.files || [])
                       if (picked.length) setImporterFiles((prev) => [...prev, ...picked].slice(0, 10))
                     }}
-                    className="block rounded-xl border-2 border-dashed border-emerald-300 bg-white p-5 text-center cursor-pointer hover:bg-emerald-50 transition">
-                    <UploadCloud className="w-6 h-6 mx-auto text-emerald-500 mb-1" />
+                    className="block rounded-xl border-2 border-dashed border-slate-300 bg-white p-5 text-center cursor-pointer hover:bg-slate-50 transition">
+                    <UploadCloud className="w-6 h-6 mx-auto text-slate-400 mb-1" />
                     <div className="text-sm font-semibold text-slate-700">Drop PDFs, DOCX, PPTX, or images</div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">Up to 10 files · 50 MB each · scanned menus & embedded images supported</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">Up to 10 files · 50 MB each</div>
                     <input
                       type="file"
                       multiple
@@ -1229,7 +1206,7 @@ export default function OnboardingPage() {
                   {importerFiles.length > 0 && (
                     <div className="flex flex-wrap gap-2">
                       {importerFiles.map((f, i) => (
-                        <div key={i} className="px-3 py-1.5 bg-white border border-emerald-200 rounded-lg text-xs font-medium text-slate-600 flex items-center gap-2">
+                        <div key={i} className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-600 flex items-center gap-2">
                           <Paperclip className="w-3 h-3" /> {f.name}
                           <button type="button" onClick={() => setImporterFiles((prev) => prev.filter((_, j) => j !== i))}>
                             <X className="w-3 h-3 text-slate-400 hover:text-red-500" />
@@ -1239,57 +1216,52 @@ export default function OnboardingPage() {
                     </div>
                   )}
 
-                  {/* URL chips */}
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Or add product/menu URLs</label>
-                    <div className="flex gap-2">
-                      <input
-                        value={importerUrlInput}
-                        onChange={(e) => setImporterUrlInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && importerUrlInput.trim()) {
-                            e.preventDefault()
-                            setImporterUrls((prev) => [...prev, importerUrlInput.trim()])
-                            setImporterUrlInput('')
-                          }
-                        }}
-                        placeholder="https://yoursite.com/menu — press Enter"
-                        className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 focus:border-emerald-400 focus:outline-none bg-white"
-                      />
-                      <button type="button" onClick={() => {
-                        if (importerUrlInput.trim()) {
+                  {/* URL input */}
+                  <div className="flex gap-2">
+                    <input
+                      value={importerUrlInput}
+                      onChange={(e) => setImporterUrlInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && importerUrlInput.trim()) {
+                          e.preventDefault()
                           setImporterUrls((prev) => [...prev, importerUrlInput.trim()])
                           setImporterUrlInput('')
                         }
-                      }} className="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-500">Add</button>
+                      }}
+                      placeholder="https://yoursite.com/products — press Enter to add"
+                      className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 focus:border-blue-400 focus:outline-none bg-white"
+                    />
+                    <button type="button" onClick={() => {
+                      if (importerUrlInput.trim()) {
+                        setImporterUrls((prev) => [...prev, importerUrlInput.trim()])
+                        setImporterUrlInput('')
+                      }
+                    }} className="px-3 py-2 bg-slate-700 text-white text-xs font-bold rounded-lg hover:bg-slate-600">Add</button>
+                  </div>
+                  {importerUrls.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {importerUrls.map((u, i) => (
+                        <div key={i} className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-600 flex items-center gap-2">
+                          <LinkIcon className="w-3 h-3" /> {u}
+                          <button type="button" onClick={() => setImporterUrls((prev) => prev.filter((_, j) => j !== i))}>
+                            <X className="w-3 h-3 text-slate-400 hover:text-red-500" />
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                    {importerUrls.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {importerUrls.map((u, i) => (
-                          <div key={i} className="px-3 py-1.5 bg-white border border-emerald-200 rounded-lg text-xs font-medium text-slate-600 flex items-center gap-2">
-                            <LinkIcon className="w-3 h-3" /> {u}
-                            <button type="button" onClick={() => setImporterUrls((prev) => prev.filter((_, j) => j !== i))}>
-                              <X className="w-3 h-3 text-slate-400 hover:text-red-500" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  )}
 
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      disabled={importerLoading || (!importerFiles.length && !importerUrls.length && !formData.website?.trim())}
-                      onClick={runProductImporter}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-bold rounded-lg hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <Wand2 className="w-4 h-4" /> {importerLoading ? 'Extracting…' : 'Extract with AI'}
-                    </button>
-                    {importerStatus && (
-                      <span className="text-xs text-slate-500">{importerStatus}</span>
-                    )}
-                  </div>
+                  <button
+                    type="button"
+                    disabled={importerLoading || (!importerFiles.length && !importerUrls.length && !formData.website?.trim())}
+                    onClick={runProductImporter}
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                  >
+                    <Wand2 className="w-4 h-4" /> {importerLoading ? 'Extracting…' : 'Extract with AI'}
+                  </button>
+                  {importerStatus && (
+                    <p className="text-xs text-slate-500 text-center">{importerStatus}</p>
+                  )}
 
                   {importerError && (
                     <div className="text-xs font-medium text-red-600 bg-red-50 border border-red-100 rounded-lg p-2">{importerError}</div>
@@ -1302,8 +1274,8 @@ export default function OnboardingPage() {
 
                   {/* Preview + commit */}
                   {(importedProducts.length > 0 || importedServices.length > 0) && (
-                    <div className="rounded-xl bg-white border border-emerald-200 p-3 space-y-3">
-                      <div className="text-xs font-black text-emerald-700 uppercase tracking-widest">Preview — review before saving</div>
+                    <div className="rounded-xl bg-white border border-blue-200 p-3 space-y-3">
+                      <div className="text-xs font-black text-blue-700 uppercase tracking-widest">Extracted — review before saving</div>
                       {importedProducts.length > 0 && (
                         <div className="space-y-1.5">
                           <div className="text-[11px] font-bold text-blue-700 uppercase">Products ({importedProducts.length})</div>
@@ -1332,10 +1304,74 @@ export default function OnboardingPage() {
                     </div>
                   )}
                 </div>
+
+                {/* Manual entries — collapsed by default */}
+                {(formData.productCatalog?.length || formData.serviceOfferings?.length) ? (
+                  <div className="space-y-3">
+                    {(formData.productCatalog || []).map((product, idx) => (
+                      <div key={idx} className="p-3 bg-white rounded-lg border border-blue-200 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <input value={product.name} onChange={e => {
+                            const catalog = [...(formData.productCatalog || [])]
+                            catalog[idx] = { ...catalog[idx], name: e.target.value }
+                            updateForm('productCatalog', catalog)
+                          }} placeholder="Product name" className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 focus:border-blue-400 focus:outline-none" />
+                          <button type="button" onClick={() => {
+                            const catalog = [...(formData.productCatalog || [])]
+                            catalog.splice(idx, 1)
+                            updateForm('productCatalog', catalog)
+                          }} className="p-1 text-slate-400 hover:text-red-500"><X className="w-4 h-4" /></button>
+                        </div>
+                        <textarea value={product.description} onChange={e => {
+                          const catalog = [...(formData.productCatalog || [])]
+                          catalog[idx] = { ...catalog[idx], description: e.target.value }
+                          updateForm('productCatalog', catalog)
+                        }} placeholder="Quick description + key features" rows={2} className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-blue-400 focus:outline-none resize-none" />
+                      </div>
+                    ))}
+                    {(formData.serviceOfferings || []).map((service, idx) => (
+                      <div key={idx} className="p-3 bg-white rounded-lg border border-emerald-200 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <input value={service.name} onChange={e => {
+                            const services = [...(formData.serviceOfferings || [])]
+                            services[idx] = { ...services[idx], name: e.target.value }
+                            updateForm('serviceOfferings', services)
+                          }} placeholder="Service name" className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 focus:border-emerald-400 focus:outline-none" />
+                          <button type="button" onClick={() => {
+                            const services = [...(formData.serviceOfferings || [])]
+                            services.splice(idx, 1)
+                            updateForm('serviceOfferings', services)
+                          }} className="p-1 text-slate-400 hover:text-red-500"><X className="w-4 h-4" /></button>
+                        </div>
+                        <textarea value={service.description} onChange={e => {
+                          const services = [...(formData.serviceOfferings || [])]
+                          services[idx] = { ...services[idx], description: e.target.value }
+                          updateForm('serviceOfferings', services)
+                        }} placeholder="What you deliver + key deliverables" rows={2} className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 focus:border-emerald-400 focus:outline-none resize-none" />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => {
+                    const catalog = [...(formData.productCatalog || []), { name: '', description: '', features: [], priceRange: '', targetSegment: '' }]
+                    updateForm('productCatalog', catalog)
+                  }} className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                    <Plus className="w-3 h-3" /> Add Product Manually
+                  </button>
+                  <button type="button" onClick={() => {
+                    const services = [...(formData.serviceOfferings || []), { name: '', description: '', deliverables: [], targetSegment: '' }]
+                    updateForm('serviceOfferings', services)
+                  }} className="text-xs font-bold text-emerald-600 hover:text-emerald-800 flex items-center gap-1">
+                    <Plus className="w-3 h-3" /> Add Service Manually
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-2">
                 <label className="text-sm font-bold uppercase tracking-wider text-slate-500">Key Competitors</label>
+                <p className="text-[11px] text-slate-400">Auto-filled from research. Refine if needed.</p>
                 <div className="flex flex-wrap gap-2">
                   <AskAIButton fieldName="Key Competitors" fieldDescription="Main competitors in the brand's market" context={aiContext} onSelect={v => updateForm('competitors', v)} currentValue={formData.competitors} />
                   <ExpandAIButton fieldName="Key Competitors" fieldDescription="Expand competitor analysis" context={aiContext} currentValue={formData.competitors || ''} onExpand={v => updateForm('competitors', v)} />
@@ -1345,6 +1381,7 @@ export default function OnboardingPage() {
 
               <div className="space-y-2">
                 <label className="text-sm font-bold uppercase tracking-wider text-slate-500">Your Secret Sauce (USP)</label>
+                <p className="text-[11px] text-slate-400">AI suggested this from research. Only you know your real edge — edit freely.</p>
                 <div className="flex flex-wrap gap-2">
                   <AskAIButton fieldName="Unique Selling Proposition" fieldDescription="What makes this brand uniquely valuable" context={aiContext} onSelect={v => updateForm('usp', v)} currentValue={formData.usp} />
                   <ExpandAIButton fieldName="USP" fieldDescription="Expand the unique selling proposition" context={aiContext} currentValue={formData.usp || ''} onExpand={v => updateForm('usp', v)} />
@@ -1359,12 +1396,13 @@ export default function OnboardingPage() {
             <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300">
               <div className="mb-4">
                 <h2 className="text-3xl font-display font-bold text-slate-900 flex items-center gap-3"><Palette className="w-8 h-8 text-emerald-500"/> Visual DNA</h2>
-                <p className="text-slate-500 mt-2">Colors, references, and brand assets.</p>
+                <p className="text-slate-500 mt-2">Colors, references, and brand assets. <span className="text-blue-500 font-semibold">These need your input — AI can&apos;t guess your visual identity.</span></p>
               </div>
 
               <div className="grid grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <label className="text-sm font-bold uppercase tracking-wider text-slate-500">Primary Brand Color</label>
+                <p className="text-[10px] text-blue-400 font-medium">Pick your brand color</p>
                   <div className="flex items-center gap-3 bg-white p-3 rounded-xl border-2 border-slate-200">
                     <input type="color" value={formData.primaryColorHex} onChange={e => updateForm('primaryColorHex', e.target.value)} className="w-10 h-10 rounded-lg cursor-pointer border-none bg-transparent" />
                     <span className="text-sm text-slate-700 uppercase font-mono">{formData.primaryColorHex}</span>
@@ -1407,6 +1445,7 @@ export default function OnboardingPage() {
 
               <div className="space-y-3 pt-4 border-t border-slate-100">
                 <label className="text-sm font-bold uppercase tracking-wider text-slate-500">Reference URLs (websites, portfolios, competitors)</label>
+                <p className="text-[11px] text-blue-400 font-medium">Share visual references that inspire your brand&apos;s look and feel.</p>
                 <div className="flex gap-2">
                   <input value={tempUrl} onChange={e => setTempUrl(e.target.value)} placeholder="https://example.com or any reference link" className={inputClass + ' flex-1'} />
                   <button type="button" onClick={() => { if (tempUrl && (formData.referenceUrls?.length || 0) < 5) { updateForm('referenceUrls', [...(formData.referenceUrls || []), tempUrl]); setTempUrl('') }}} 
@@ -1425,7 +1464,7 @@ export default function OnboardingPage() {
 
               <div className="space-y-3 pt-4 border-t border-slate-100">
                 <label className="text-sm font-bold uppercase tracking-wider text-slate-500">Brand Assets (logos, moodboards, guidelines)</label>
-                <p className="text-xs text-slate-400">Upload PNG, JPG, PDF, PPT, or ZIP files up to 100MB each.</p>
+                <p className="text-xs text-blue-400 font-medium">Upload your logo, brand guide, or moodboard so AI can match your style.</p>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {formData.brandAssets?.map((url, i) => {
                     const isDoc = url.toLowerCase().includes('.pdf') || url.toLowerCase().includes('.ppt') || url.toLowerCase().includes('.zip') || url.toLowerCase().includes('.doc')

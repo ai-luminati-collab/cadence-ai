@@ -13,6 +13,7 @@ import { generatePostContent } from '@/actions/content'
 import { useRouter } from 'next/navigation'
 import { Toast, useToast } from '@/components/ui/Toast'
 import { PatternPrompt } from '@/components/ui/PatternPrompt'
+import { useBrandOSSignals } from '@/hooks/useBrandOSSignals'
 import { exportToPDF } from '@/lib/exportPdf'
 import { getContentSpec } from '@/lib/platform-specs'
 import { type ImageModel } from '@/actions/imageGen'
@@ -77,8 +78,9 @@ const PLATFORM_FORMATS: Record<string, { label: string; value: string }[]> = {
 export default function CalendarPage() {
   const router = useRouter()
   const { brands, activeBrandId, setCalendar, updateCalendarPost, saveDraft, saveDraftVariant, addPendingInsight, addAiKnowledge, addEditEvent, dismissPattern } = useBrandStore()
+  const signals = useBrandOSSignals() // Brand OS Evolution Engine
   const activeBrand = activeBrandId ? brands[activeBrandId] : null
-  
+
   const brandInfo = activeBrand?.brandInfo
   const strategy = activeBrand?.strategy
   const calendar = activeBrand?.calendar
@@ -244,6 +246,9 @@ export default function CalendarPage() {
 
     addEditEvent(event)
 
+    // 🧠 Brand OS Evolution: Log content edit signal to server
+    signals.logContentEdit(postId, platform, format, editType, originalText, editedText)
+
     // Check for patterns with the new event included
     const allEvents = [...editEvents, event]
     const pattern = detectPattern(allEvents as EditEvent[], platform)
@@ -276,6 +281,9 @@ export default function CalendarPage() {
     }
 
     addEditEvent(event)
+
+    // 🧠 Brand OS Evolution: Log copilot instruction signal to server
+    signals.logContentEdit(postId, platform, format, editType, '', instruction)
 
     const allEvents = [...editEvents, event]
     const pattern = detectPattern(allEvents as EditEvent[], platform)
@@ -777,6 +785,21 @@ export default function CalendarPage() {
          <h2 className="text-3xl font-display font-bold text-[var(--color-text-primary)] mb-3">Workspace Required</h2>
          <p className="text-[var(--color-text-secondary)] mb-8 max-w-md">The Content Intelligence Engine requires an active brand session. Exit to Dashboard to select your focus.</p>
          <button onClick={() => router.push('/dashboard')} className="bg-[var(--color-accent-600)] hover:bg-[var(--color-accent-500)] text-white px-8 py-3 rounded-full font-bold transition-all transform hover:-translate-y-0.5 shadow-[0_0_20px_var(--color-accent-glow)] uppercase tracking-tight text-xs">Return to Dashboard</button>
+       </div>
+    )
+  }
+
+  if (!activeBrand.socialStrategyGenerated) {
+    return (
+       <div className="flex flex-col items-center justify-center h-[calc(100vh-8rem)] text-center animate-in fade-in duration-500">
+         <div className="w-20 h-20 rounded-full bg-amber-500/10 flex items-center justify-center mb-6 border border-amber-500/30">
+            <CalendarIcon className="w-10 h-10 text-amber-400" />
+         </div>
+         <h2 className="text-3xl font-display font-bold text-[var(--color-text-primary)] mb-3">Social Strategy Required</h2>
+         <p className="text-[var(--color-text-secondary)] mb-8 max-w-md">You need to generate your Social Media Strategy before building a content calendar. Head to Brand OS and unlock it.</p>
+         <button onClick={() => router.push('/strategy')} className="bg-[var(--color-accent-600)] hover:bg-[var(--color-accent-500)] text-white px-8 py-3 rounded-full font-bold transition-all transform hover:-translate-y-0.5 shadow-[0_0_20px_var(--color-accent-glow)] uppercase tracking-tight text-xs flex items-center gap-2">
+           Go to Brand OS
+         </button>
        </div>
     )
   }

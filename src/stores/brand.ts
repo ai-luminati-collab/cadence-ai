@@ -172,6 +172,7 @@ export interface BrandInfo {
   usp?: string
 
   // Visual DNA
+  visualDirective?: string // AI-generated visual art direction (e.g., "Premium, high-contrast photography with warm amber tones")
   primaryColorHex?: string
   secondaryColorHex?: string
   additionalColors?: string[]
@@ -180,9 +181,14 @@ export interface BrandInfo {
 
   extraNotes?: string
 
-  // The Dynamic Brain
+  // The Dynamic Brain (Legacy — flat rules, migrated to structured on first load)
   aiKnowledgeBase?: string[]
   pendingInsights?: string[]
+
+  // Structured Knowledge Base (Evolution Engine)
+  knowledgeRules?: import('@/lib/brand-os-evolution').KnowledgeRule[]
+  learningPhase?: import('@/lib/brand-os-evolution').LearningPhase
+  onboardedAt?: string // ISO date — used to compute window_day for convergence
 
   // Product/Service Intelligence
   coreProducts?: string[] // Anti-hallucination anchor: exact product/menu names the AI MUST use
@@ -313,6 +319,7 @@ export interface BrandData {
   hasOnboarded: boolean
   brandInfo: BrandInfo | null
   strategy: Strategy | null
+  socialStrategyGenerated: boolean
   calendar: CalendarPost[] | null
   contentDrafts: Record<string, ContentDraft>
   draftHistory: Record<string, ContentDraft[]> // A/B Memory: previous variants per post
@@ -352,6 +359,7 @@ interface BrandState {
   // Actions for the active brand
   setBrandInfo: (info: BrandInfo) => void
   setStrategy: (strategy: Strategy) => void
+  mergeSocialStrategy: (socialData: Partial<Strategy>) => void
   completeOnboarding: () => void
 
   setCalendar: (posts: CalendarPost[]) => void
@@ -376,12 +384,20 @@ interface BrandState {
   // Edit Pattern Detection
   addEditEvent: (event: EditEventRecord) => void
   dismissPattern: (patternKey: string) => void
+
+  // Brand OS Evolution Engine
+  addKnowledgeRule: (rule: import('@/lib/brand-os-evolution').KnowledgeRule) => void
+  removeKnowledgeRule: (ruleId: string) => void
+  updateKnowledgeRule: (ruleId: string, updates: Partial<import('@/lib/brand-os-evolution').KnowledgeRule>) => void
+  setLearningPhase: (phase: import('@/lib/brand-os-evolution').LearningPhase) => void
+  setOnboardedAt: (date: string) => void
 }
 
 const initialBrandData = (): Omit<BrandData, 'id'> => ({
   hasOnboarded: false,
   brandInfo: null,
   strategy: null,
+  socialStrategyGenerated: false,
   calendar: null,
   contentDrafts: {},
   draftHistory: {},
@@ -515,6 +531,21 @@ export const useBrandStore = create<BrandState>()(
           brands: {
             ...state.brands,
             [state.activeBrandId]: { ...state.brands[state.activeBrandId], strategy }
+          }
+        }
+      }),
+
+      mergeSocialStrategy: (socialData: Partial<Strategy>) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              strategy: { ...brand.strategy, ...socialData } as Strategy,
+              socialStrategyGenerated: true,
+            }
           }
         }
       }),
@@ -704,6 +735,97 @@ export const useBrandStore = create<BrandState>()(
           brands: {
             ...state.brands,
             [state.activeBrandId]: { ...brand, dismissedPatterns: dismissed }
+          }
+        }
+      }),
+
+      // ── Brand OS Evolution Engine ──
+
+      addKnowledgeRule: (rule) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        if (!brand?.brandInfo) return state;
+        const currentRules = brand.brandInfo.knowledgeRules || []
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              brandInfo: {
+                ...brand.brandInfo,
+                knowledgeRules: [...currentRules, rule]
+              }
+            }
+          }
+        }
+      }),
+
+      removeKnowledgeRule: (ruleId) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        if (!brand?.brandInfo) return state;
+        const currentRules = brand.brandInfo.knowledgeRules || []
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              brandInfo: {
+                ...brand.brandInfo,
+                knowledgeRules: currentRules.filter(r => r.id !== ruleId)
+              }
+            }
+          }
+        }
+      }),
+
+      updateKnowledgeRule: (ruleId, updates) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        if (!brand?.brandInfo) return state;
+        const currentRules = brand.brandInfo.knowledgeRules || []
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              brandInfo: {
+                ...brand.brandInfo,
+                knowledgeRules: currentRules.map(r =>
+                  r.id === ruleId ? { ...r, ...updates } : r
+                )
+              }
+            }
+          }
+        }
+      }),
+
+      setLearningPhase: (phase) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        if (!brand?.brandInfo) return state;
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              brandInfo: { ...brand.brandInfo, learningPhase: phase }
+            }
+          }
+        }
+      }),
+
+      setOnboardedAt: (date) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        if (!brand?.brandInfo) return state;
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              brandInfo: { ...brand.brandInfo, onboardedAt: date }
+            }
           }
         }
       }),

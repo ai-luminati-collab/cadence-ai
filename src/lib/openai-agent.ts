@@ -51,22 +51,40 @@ function sanitizeAIError(err: any): string {
   return 'AI request failed. Please try again.'
 }
 
-// Claude model fallback chain — tries best first, falls back on 404
-// Model IDs from /v1/models endpoint (Apr 2026)
-const CLAUDE_MODELS = [
-  'claude-opus-4-6',              // Opus 4.6 — top tier
-  'claude-sonnet-4-6',            // Sonnet 4.6 — fast + smart
-  'claude-opus-4-5-20251101',     // Opus 4.5 — fallback
-  'claude-sonnet-4-5-20250929',   // Sonnet 4.5 — older fallback
-  'claude-haiku-4-5-20251001',    // Haiku 4.5 — cheapest fallback
+// ═══════════════════════════════════════════════════════════════
+// MODEL HIERARCHY
+//
+// TIER 1 — Brand OS / Research / Knowledge Base:
+//   Claude 4.7 Opus → the absolute top for brand intelligence,
+//   research synthesis, Brand OS updates, knowledge base mods.
+//
+// TIER 2 — Everything Else (strategy, calendar, content):
+//   Workers: GPT 5.5 Thinking (draft generation)
+//   Boss: Claude Opus 4.6 (review & upgrade)
+// ═══════════════════════════════════════════════════════════════
+
+// Tier 2 Boss: Claude 4.6 Opus for reviewing/upgrading worker drafts
+const CLAUDE_BOSS_MODELS = [
+  'claude-opus-4-6',              // Opus 4.6 — Boss tier
+  'claude-sonnet-4-6',            // Sonnet 4.6 — fast fallback
+  'claude-opus-4-5-20251101',     // Opus 4.5 — older fallback
+  'claude-sonnet-4-5-20250929',   // Sonnet 4.5 — last resort
+]
+
+// Tier 1 Brain: Claude 4.7 Opus for Brand OS, research, knowledge base
+const CLAUDE_BRAIN_MODELS = [
+  'claude-opus-4-7',              // Opus 4.7 — absolute top tier (Brand OS brain)
+  'claude-opus-4-6',              // Opus 4.6 — fallback if 4.7 not available
+  'claude-sonnet-4-6',            // Sonnet 4.6 — emergency fallback
 ]
 
 /** Try each model in the fallback chain until one works */
 async function callClaudeWithFallback(
   anthropic: Anthropic,
-  params: { system: string; messages: Anthropic.MessageParam[]; max_tokens: number }
+  params: { system: string; messages: Anthropic.MessageParam[]; max_tokens: number },
+  modelChain: string[] = CLAUDE_BOSS_MODELS
 ): Promise<string | null> {
-  for (const model of CLAUDE_MODELS) {
+  for (const model of modelChain) {
     try {
       console.log(`🔄 Trying Claude model: ${model}`)
       const stream = await anthropic.messages.stream({
@@ -199,10 +217,13 @@ async function getLiveAlgorithmState(): Promise<string> {
 }
 
 /**
- * Two-Tier AI Pipeline: Generator → Verifier
+ * TIER 2: Two-Tier AI Pipeline — Worker → Boss
  *
- * Stage 1 (WORKER): GPT-5.4-mini generates the draft fast (~3-8s)
+ * Stage 1 (WORKER): GPT 5.5 Thinking generates the draft (~5-12s)
  * Stage 2 (BOSS):   Claude Opus 4.6 reviews, fixes, and upgrades (~5-15s)
+ *
+ * Used for: Strategy generation, calendar, content, image prompts.
+ * NOT used for: Brand OS, research, knowledge base (those use Tier 1 / 4.7 Opus)
  *
  * Why Claude as Boss: Produces 70-80% less "AI smog" natively, follows
  * constraint sets (banned words, format rules, anti-patterns) more reliably,
@@ -239,14 +260,13 @@ ${liveAlgoState}
 
   try {
      // ═══════════════════════════════════════════════
-     // STAGE 1: WORKER (gpt-4o-mini) — Fast Draft
+     // STAGE 1: WORKER (GPT 5.5) — Draft
      // ═══════════════════════════════════════════════
-     console.log("⚡ Stage 1: Worker drafting with gpt-5.4-mini...")
+     console.log("⚡ Stage 1: Worker drafting with GPT 5.5...")
      const startWorker = Date.now()
 
      const workerResponse = await openai.chat.completions.create({
-        model: "gpt-5.4-mini",
-        temperature: 0.7,
+        model: "gpt-5.5",
         messages: [
            { role: "system", content: systemInstructions },
            { role: "user", content: prompt }
@@ -276,7 +296,7 @@ ${liveAlgoState}
      //   3. REJECT entire outputs that are unsalvageable (triggers re-draft)
      //   4. APPROVE only when the output is genuinely world-class
      // ═══════════════════════════════════════════════════════════
-     console.log("🧠 Stage 2: Boss reviewing with Claude (Opus 4.6 primary)...")
+     console.log("🎯 Stage 2: Boss reviewing with Claude Opus 4.6 (TIER 2)...")
      const startBoss = Date.now()
 
      if (!process.env.ANTHROPIC_API_KEY) {
@@ -332,10 +352,11 @@ CRITICAL: Return ONLY the final improved output. Same JSON format. No commentary
 }
 
 /**
- * Single-Tier Premium Pipeline (Claude Opus 4.6)
- * Uses Claude Opus for highest reasoning on large structured outputs (calendar, strategy).
- * No worker draft — Claude generates from scratch with full context.
- * Used when the output is too large/important for a GPT-mini first pass.
+ * TIER 1: Brand OS Brain — Claude 4.7 Opus
+ *
+ * Used EXCLUSIVELY for Brand OS, research synthesis, and knowledge base operations.
+ * This is the highest-tier model — maximum reasoning for brand intelligence.
+ * No worker draft — Claude 4.7 Opus generates from scratch with full context.
  */
 export async function askExpertAgentPremium(prompt: string, knowledgeOverride?: string | null) {
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -378,7 +399,7 @@ ${liveAlgoState}
 `
 
   try {
-     console.log("💎 Running Premium Single-Pass with Claude Opus 4.6 (claude-opus-4-6)...")
+     console.log("🧠 Running Brand OS Brain with Claude 4.7 Opus (TIER 1)...")
      const start = Date.now()
 
      const finalOutput = await callClaudeWithFallback(anthropic, {
@@ -387,9 +408,9 @@ ${liveAlgoState}
         messages: [
            { role: "user", content: prompt }
         ]
-     })
+     }, CLAUDE_BRAIN_MODELS) // ← TIER 1: Uses 4.7 Opus chain
      const time = ((Date.now() - start) / 1000).toFixed(1)
-     console.log(`✅ Premium Single-Pass (Claude Opus) complete in ${time}s`)
+     console.log(`✅ Brand OS Brain (Claude 4.7 Opus) complete in ${time}s`)
 
      if (finalOutput) {
         return { success: true, data: finalOutput }

@@ -2,13 +2,22 @@ import { GoogleGenAI } from '@google/genai'
 
 /**
  * Deep Research Client — Google Interactions API
- * 
+ *
  * Launches a comprehensive, multi-step research agent that browses the web,
  * reads pages, and synthesizes a full brand intelligence report.
  * Takes 2-10 minutes. Must run in background mode.
+ *
+ * Tries Vertex AI endpoint first (pay-as-you-go, higher quotas),
+ * falls back to AI Studio key if Vertex isn't configured.
  */
 
-const AGENT_ID = 'deep-research-pro-preview-12-2025'
+const AGENT_ID = 'deep-research-max-preview-04-2026'
+
+function createClient(): GoogleGenAI {
+  const apiKey = process.env.GOOGLE_API_KEY
+  if (!apiKey) throw new Error('Missing GOOGLE_API_KEY')
+  return new GoogleGenAI({ apiKey })
+}
 
 /** Start a deep research interaction. Returns immediately with an ID to poll. */
 export async function startDeepResearch(query: string): Promise<{
@@ -16,11 +25,8 @@ export async function startDeepResearch(query: string): Promise<{
   interactionId?: string
   error?: string
 }> {
-  const apiKey = process.env.GOOGLE_API_KEY
-  if (!apiKey) return { success: false, error: 'Missing GOOGLE_API_KEY' }
-
   try {
-    const client = new GoogleGenAI({ apiKey })
+    const client = createClient()
 
     console.log('🔬 Starting Deep Research via Interactions API...')
     console.log(`📝 Query length: ${query.length} chars`)
@@ -34,7 +40,7 @@ export async function startDeepResearch(query: string): Promise<{
     const interactionId = interaction?.id
     console.log(`✅ Deep Research started. ID: ${interactionId}`)
     console.log(`   Status: ${interaction?.status}`)
-    
+
     if (!interactionId) {
       return { success: false, error: 'No interaction ID returned' }
     }
@@ -52,11 +58,8 @@ export async function checkDeepResearchStatus(interactionId: string): Promise<{
   report?: string
   error?: string
 }> {
-  const apiKey = process.env.GOOGLE_API_KEY
-  if (!apiKey) return { status: 'failed', error: 'Missing GOOGLE_API_KEY' }
-
   try {
-    const client = new GoogleGenAI({ apiKey })
+    const client = createClient()
     const result = await (client as any).interactions.get(interactionId)
 
     const status = result?.status?.toLowerCase()
