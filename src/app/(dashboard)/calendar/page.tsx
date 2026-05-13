@@ -1499,7 +1499,7 @@ export default function CalendarPage() {
                                      {post.bucketName}
                                    </div>
                                  )}
-                                 <p className={`text-[11px] font-bold leading-snug line-clamp-2 ${hasDraft ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-primary)]'}`}>
+                                 <p className={`text-[11px] font-bold leading-snug line-clamp-2 ${hasDraft ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-primary)]'}`} title={post.topic}>
                                     {post.topic}
                                  </p>
                                </div>
@@ -1557,7 +1557,7 @@ export default function CalendarPage() {
                                     <span className="px-3 py-1 rounded-full bg-[var(--color-bg-input)] text-[var(--color-text-primary)] text-[10px] font-bold border border-[var(--color-border-default)]">{post.pillar}</span>
                                  </td>
                                  <td className="py-4 px-6 w-1/3">
-                                    <p className="text-sm font-medium text-[var(--color-text-primary)] line-clamp-2">{post.topic}</p>
+                                    <p className="text-sm font-medium text-[var(--color-text-primary)] line-clamp-2" title={post.topic}>{post.topic}</p>
                                  </td>
                                  <td className="py-4 px-6 text-right whitespace-nowrap">
                                     {hasDraft ? (
@@ -1669,8 +1669,10 @@ export default function CalendarPage() {
                              }
                            }}
                            onChange={(e) => updateCalendarPost(activePost.id, { topic: e.target.value })}
-                           className="w-full bg-transparent text-2xl font-bold text-[var(--color-text-primary)] leading-snug resize-none outline-none overflow-hidden placeholder:text-[var(--color-text-tertiary)] italic"
-                           rows={4}
+                           className="w-full bg-transparent text-2xl font-bold text-[var(--color-text-primary)] leading-snug resize-none outline-none placeholder:text-[var(--color-text-tertiary)] italic"
+                           rows={2}
+                           style={{ minHeight: '80px', height: 'auto', overflow: 'auto' }}
+                           ref={(el) => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px' } }}
                         />
                         <div className="mt-6 pt-6 border-t border-[var(--color-border-subtle)] relative flex items-center">
                            <input 

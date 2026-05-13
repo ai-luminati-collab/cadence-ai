@@ -341,10 +341,16 @@ export default function StrategyPage() {
   }
 
   const handleExport = async () => {
-    const { exportToPDF } = await import('@/lib/exportPdf')
     setIsExporting(true)
-    await exportToPDF('strategy-export-node', `${brandInfo?.name || 'Brand'}_OS.pdf`)
-    setIsExporting(false)
+    try {
+      const { exportToPDF } = await import('@/lib/exportPdf')
+      await exportToPDF('strategy-export-node', `${brandInfo?.name || 'Brand'}_OS.pdf`)
+    } catch (err: any) {
+      console.error('Export failed:', err)
+      setError('PDF export failed. Please try again.')
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   const handleMediaUpload = async (files: FileList, field: 'brandReferences' | 'productImages' | 'brandLogos' | 'fontSpecimenImages') => {
@@ -986,10 +992,22 @@ export default function StrategyPage() {
                 {/* Playbook Summary */}
                 <div className="px-8 py-4 bg-[var(--color-bg-surface)] border-b border-[var(--color-border-subtle)]">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Role</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook?.role || '—'}</p></div>
-                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Mechanics</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook?.mechanics || '—'}</p></div>
-                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Tone</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook?.toneModifier || '—'}</p></div>
-                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Cadence</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook?.cadence || '—'}</p></div>
+                    {[
+                      { label: 'Role', value: playbook?.role },
+                      { label: 'Mechanics', value: playbook?.mechanics },
+                      { label: 'Tone', value: playbook?.toneModifier },
+                      { label: 'Cadence', value: playbook?.cadence },
+                    ].map(({ label, value }) => {
+                      const text = value || '—'
+                      const needsExpand = text.length > 80
+                      return (
+                        <div key={label} className="group/field">
+                          <label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">{label}</label>
+                          <p className={`text-xs font-bold text-[var(--color-text-secondary)] mt-1 cursor-default transition-all ${needsExpand ? 'line-clamp-2 group-hover/field:line-clamp-none' : ''}`} title={text}>{text}</p>
+                          {needsExpand && <span className="text-[8px] text-[var(--color-accent-500)] opacity-0 group-hover/field:opacity-100 transition-opacity cursor-default">hover to expand</span>}
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
 
