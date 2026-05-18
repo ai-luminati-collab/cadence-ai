@@ -738,6 +738,11 @@ export class AgentTeam {
     return this.escalations.filter(e => e.status === 'pending_ceo')
   }
 
+  // Replay an escalation from a previous agent call (for sequential execution)
+  replayEscalation(esc: EscalationPackage): void {
+    this.escalations.push(esc)
+  }
+
   // ── Run a Single Agent ──
 
   async runAgent(agentId: AgentId, inputContext: string, threadId?: string): Promise<{

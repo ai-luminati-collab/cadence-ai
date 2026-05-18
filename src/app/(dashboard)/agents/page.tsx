@@ -81,6 +81,38 @@ export default function AgentsPage() {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [liveLog])
 
+  // Helper: call a single agent via API
+  const callAgent = async (
+    agentId: string,
+    brandContext: string,
+    inputContext: string,
+    existingMessages: any[],
+    existingEscalations: any[],
+  ) => {
+    const res = await fetch('/api/agents/run-agent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agentId,
+        brandContext,
+        brandId: activeBrandId,
+        inputContext,
+        existingMessages,
+        existingEscalations,
+      }),
+    })
+
+    const contentType = res.headers.get('content-type') || ''
+    if (!contentType.includes('application/json')) {
+      const text = await res.text()
+      throw new Error(`${agentId} failed: ${text.slice(0, 150) || `HTTP ${res.status}`}`)
+    }
+
+    const data = await res.json()
+    if (!data.success) throw new Error(`${agentId}: ${data.error || 'Failed'}`)
+    return data
+  }
+
   const runTeamCycle = async () => {
     if (!brandInfo || !activeBrand?.strategy) return
     setIsRunning(true)
@@ -93,18 +125,12 @@ export default function AgentsPage() {
     setLiveLog([])
     setCurrentWave(0)
 
-    // Simulate wave progression for UX
-    const waveTimer = (wave: number, delay: number) =>
-      setTimeout(() => {
-        setCurrentWave(wave)
-        const waveInfo = WAVE_LABELS[wave - 1]
-        setLiveLog(prev => [...prev, `🌊 Wave ${wave}: ${waveInfo.label} — ${waveInfo.agents.map(a => AGENT_META[a].name).join(' + ')} active`])
-      }, delay)
-
-    const t1 = waveTimer(1, 500)
-    const t2 = waveTimer(2, 8000)
-    const t3 = waveTimer(3, 16000)
-    const t4 = waveTimer(4, 28000)
+    const startTime = Date.now()
+    let accumulatedMessages: any[] = []
+    let accumulatedEscalations: any[] = []
+    let allQuestions: any[] = []
+    let latestMemory: any = null
+    const activity: Record<string, { messagesSent: number; escalationsRaised: number; learningsProduced?: number }> = {}
 
     try {
       const calendar = activeBrand.calendar || []
@@ -134,65 +160,125 @@ Published Posts: ${publishedPosts.length}`
         return post ? `"${post.topic}" — Caption: ${draft.caption?.substring(0, 150)}... | Hooks: ${draft.hooks?.slice(0, 2).join(' | ')}` : null
       }).filter(Boolean).join('\n')
 
-      // Competitor data from brand store
       const competitors = brandInfo.competitorHandles || []
       const competitorData = competitors.length > 0
         ? `Tracked competitors: ${competitors.map((c: any) => c.name).join(', ')}\nHandles: ${competitors.map((c: any) => Object.entries(c.handles || {}).map(([p, h]) => `${p}: ${h}`).join(', ')).join(' | ')}`
         : undefined
 
-      const res = await fetch('/api/agents/team-cycle', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          brandContext,
-          brandId: activeBrandId,
-          performanceData,
-          competitorData,
-          calendarData,
-          draftData,
-          trendData: 'Analyze current social media trends relevant to this brand\'s industry and suggest timely content opportunities.',
-        }),
+      // Helper to process agent result
+      const processResult = (data: any) => {
+        accumulatedMessages = data.fullMessageBus || accumulatedMessages
+        accumulatedEscalations = data.fullEscalations || accumulatedEscalations
+        if (data.smartQuestions?.length) allQuestions.push(...data.smartQuestions)
+        if (data.memoryStore) latestMemory = data.memoryStore
+        activity[data.agentId] = {
+          messagesSent: data.messages?.length || 0,
+          escalationsRaised: data.escalations?.length || 0,
+        }
+        // Update UI in real-time
+        setMessageBus([...accumulatedMessages])
+        setEscalations([...accumulatedEscalations])
+        setSmartQuestions([...allQuestions])
+        setAgentActivity({ ...activity })
+        if (data.memoryStore) setMemoryStore(data.memoryStore)
+      }
+
+      // ── WAVE 1: Scout + TrendRadar ──
+      setCurrentWave(1)
+      setLiveLog(prev => [...prev, '🌊 Wave 1: Intelligence Gathering — Scout + TrendRadar'])
+
+      setLiveLog(prev => [...prev, '  🔍 Scout analyzing competitive landscape...'])
+      const scoutResult = await callAgent('scout', brandContext,
+        competitorData ? `COMPETITOR DATA:\n${competitorData}` : 'No competitor data available. Provide general competitive intelligence recommendations.',
+        accumulatedMessages, accumulatedEscalations)
+      processResult(scoutResult)
+      setLiveLog(prev => [...prev, `  ✅ Scout done (${(scoutResult.timeMs / 1000).toFixed(1)}s) — ${scoutResult.messages?.length || 0} messages`])
+
+      setLiveLog(prev => [...prev, '  📡 TrendRadar scanning trends...'])
+      const trendResult = await callAgent('trend_radar', brandContext,
+        'Analyze current social media trends relevant to this brand\'s industry. Identify timely content opportunities, trending formats, and cultural moments.',
+        accumulatedMessages, accumulatedEscalations)
+      processResult(trendResult)
+      setLiveLog(prev => [...prev, `  ✅ TrendRadar done (${(trendResult.timeMs / 1000).toFixed(1)}s) — ${trendResult.messages?.length || 0} messages`])
+
+      // ── WAVE 2: Strategist ──
+      setCurrentWave(2)
+      setLiveLog(prev => [...prev, '🌊 Wave 2: Strategy Formation — Strategist'])
+
+      setLiveLog(prev => [...prev, '  🧠 Strategist processing intelligence...'])
+      const stratResult = await callAgent('strategist', brandContext,
+        performanceData ? `PERFORMANCE DATA:\n${performanceData}` : 'No performance data yet. Recommend initial content strategy based on brand context.',
+        accumulatedMessages, accumulatedEscalations)
+      processResult(stratResult)
+      setLiveLog(prev => [...prev, `  ✅ Strategist done (${(stratResult.timeMs / 1000).toFixed(1)}s) — ${stratResult.messages?.length || 0} messages`])
+
+      // ── WAVE 3: Planner + Copywriter + Creative ──
+      setCurrentWave(3)
+      setLiveLog(prev => [...prev, '🌊 Wave 3: Content Execution — Planner + Copywriter + Creative'])
+
+      setLiveLog(prev => [...prev, '  📅 Planner optimizing calendar...'])
+      const planResult = await callAgent('planner', brandContext,
+        calendarData ? `CURRENT CALENDAR:\n${calendarData}` : 'No calendar data. Suggest initial posting schedule.',
+        accumulatedMessages, accumulatedEscalations)
+      processResult(planResult)
+      setLiveLog(prev => [...prev, `  ✅ Planner done (${(planResult.timeMs / 1000).toFixed(1)}s) — ${planResult.messages?.length || 0} messages`])
+
+      setLiveLog(prev => [...prev, '  ✍️ Copywriter crafting copy...'])
+      const copyResult = await callAgent('copywriter', brandContext,
+        draftData ? `RECENT DRAFTS:\n${draftData}` : 'No draft data. Write initial content recommendations.',
+        accumulatedMessages, accumulatedEscalations)
+      processResult(copyResult)
+      setLiveLog(prev => [...prev, `  ✅ Copywriter done (${(copyResult.timeMs / 1000).toFixed(1)}s) — ${copyResult.messages?.length || 0} messages`])
+
+      setLiveLog(prev => [...prev, '  🎨 Creative developing visual direction...'])
+      const creativeResult = await callAgent('creative', brandContext,
+        'Create visual direction and image prompt recommendations based on team conversation.',
+        accumulatedMessages, accumulatedEscalations)
+      processResult(creativeResult)
+      setLiveLog(prev => [...prev, `  ✅ Creative done (${(creativeResult.timeMs / 1000).toFixed(1)}s) — ${creativeResult.messages?.length || 0} messages`])
+
+      // ── WAVE 4: CEO Review ──
+      setCurrentWave(4)
+      setLiveLog(prev => [...prev, '🌊 Wave 4: CEO Review — Claude Opus 4.7'])
+
+      const pendingEscalations = accumulatedEscalations.filter((e: any) => e.status === 'pending_ceo')
+      const escalationBrief = pendingEscalations.length > 0
+        ? `ESCALATIONS REQUIRING YOUR DECISION:\n${pendingEscalations.map((esc: any) =>
+            `=== ${esc.title} ===\nUrgency: ${esc.urgency}\nSummary: ${esc.summary}\nProposed: ${esc.proposedActions?.map((a: any) => `${a.description} [${a.confidenceLevel}]`).join(', ')}`
+          ).join('\n\n')}`
+        : 'No escalations to review.'
+
+      const questionsBrief = allQuestions.length > 0
+        ? `\n\nSMART QUESTIONS TO REVIEW:\n${allQuestions.map((q: any) => `[${q.agentName}] "${q.question}"`).join('\n')}`
+        : ''
+
+      setLiveLog(prev => [...prev, `  👔 CEO reviewing ${pendingEscalations.length} escalations + ${allQuestions.length} questions...`])
+      const ceoResult = await callAgent('ceo', brandContext,
+        `FULL MESSAGE BUS SUMMARY:\n${accumulatedMessages.map((m: any) => `[${m.sender} → ${Array.isArray(m.recipients) ? m.recipients.join(',') : m.recipients}] ${m.subject}: ${m.content?.substring(0, 200)}`).join('\n')}\n\n${escalationBrief}${questionsBrief}`,
+        accumulatedMessages, accumulatedEscalations)
+      processResult(ceoResult)
+
+      setCeoDecisions({
+        messages: ceoResult.messages,
+        escalationsReviewed: pendingEscalations.length,
+        questionsReviewed: allQuestions.length,
       })
 
-      // Handle non-JSON responses (e.g., Vercel timeout, 502, etc.)
-      const contentType = res.headers.get('content-type') || ''
-      if (!contentType.includes('application/json')) {
-        const text = await res.text()
-        throw new Error(text.slice(0, 200) || `Server returned ${res.status} (not JSON). Possible timeout — Vercel free plan has a 60s limit.`)
-      }
+      setLiveLog(prev => [...prev, `  ✅ CEO done (${(ceoResult.timeMs / 1000).toFixed(1)}s)`])
 
-      const data = await res.json()
+      // ── DONE ──
+      const totalMs = Date.now() - startTime
+      setTotalTime(totalMs)
+      setCurrentWave(5)
+      setLiveLog(prev => [...prev,
+        `✅ Team cycle complete — ${accumulatedMessages.length} messages, ${accumulatedEscalations.length} escalations`,
+        `🧠 ${latestMemory?.totalLearnings || 0} learnings • ${allQuestions.length} questions for you`,
+        `⏱ Total time: ${(totalMs / 1000).toFixed(1)}s`,
+      ])
 
-      clearTimeout(t1)
-      clearTimeout(t2)
-      clearTimeout(t3)
-      clearTimeout(t4)
-
-      if (data.success) {
-        setMessageBus(data.messageBus || [])
-        setEscalations(data.escalations || [])
-        setCeoDecisions(data.ceoDecisions)
-        setSmartQuestions(data.smartQuestions || [])
-        setMemoryStore(data.memoryStore || null)
-        setAgentActivity(data.agentActivity || {})
-        setTotalTime(data.totalTimeMs || 0)
-        setCurrentWave(5) // Done
-        setLiveLog(prev => [...prev,
-          `✅ Team cycle complete — ${data.meta?.totalMessages || 0} messages, ${data.meta?.totalEscalations || 0} escalations`,
-          `🧠 ${data.meta?.totalLearnings || 0} learnings recorded • ${data.meta?.totalSmartQuestions || 0} questions for you`,
-          `⏱ Total time: ${((data.totalTimeMs || 0) / 1000).toFixed(1)}s`,
-        ])
-      } else {
-        setError(data.error || 'Team cycle failed')
-        setLiveLog(prev => [...prev, `❌ Error: ${data.error}`])
-      }
     } catch (err: any) {
       setError(err.message || 'Failed to run team cycle')
       setLiveLog(prev => [...prev, `❌ Error: ${err.message}`])
-      clearTimeout(t1)
-      clearTimeout(t2)
-      clearTimeout(t3)
-      clearTimeout(t4)
     } finally {
       setIsRunning(false)
     }
