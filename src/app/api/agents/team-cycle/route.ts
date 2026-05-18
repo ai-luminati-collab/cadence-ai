@@ -1,31 +1,39 @@
 /**
  * POST /api/agents/team-cycle
  *
- * Triggers the full autonomous agent team cycle:
+ * Triggers the full autonomous agent team cycle with learning memory:
  *   Wave 1: Scout + TrendRadar gather intelligence (parallel)
  *   Wave 2: Strategist processes intel
  *   Wave 3: Planner + Copywriter + Creative execute (parallel)
- *   Wave 4: CEO (Claude Opus 4.7) reviews all escalations
+ *   Wave 4: CEO reviews escalations + validates smart questions
+ *   Post-cycle: Memory reflection — derives new rules from wins/losses
  *
- * Body: { brandContext, performanceData?, competitorData?, trendData?, calendarData?, draftData? }
- * Returns: { messageBus, escalations, ceoDecisions, totalTimeMs, agentActivity }
+ * Body: { brandContext, performanceData?, competitorData?, trendData?, calendarData?, draftData?, brandMemory? }
+ * Returns: { messageBus, escalations, ceoDecisions, smartQuestions, memoryStore, totalTimeMs, agentActivity }
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getAgentTeam, type AgentId } from '@/lib/agent-team'
+import { resetAgentTeam, type AgentId } from '@/lib/agent-team'
+import type { BrandMemoryStore } from '@/lib/brand-memory'
 
 export const maxDuration = 300 // 5 min — multi-agent pipeline
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { brandContext, performanceData, competitorData, trendData, calendarData, draftData } = body
+    const { brandContext, performanceData, competitorData, trendData, calendarData, draftData, brandMemory } = body
 
     if (!brandContext) {
       return NextResponse.json({ error: 'Missing brandContext' }, { status: 400 })
     }
 
-    const team = getAgentTeam()
+    // Reset team for fresh cycle, inject brand memory if available
+    const team = resetAgentTeam(brandMemory as BrandMemoryStore | undefined)
+
+    // If no memory store was passed but we have a brandId, create fresh memory
+    if (!brandMemory && body.brandId) {
+      team.setMemory(body.brandId)
+    }
 
     const result = await team.runTeamCycle(brandContext, {
       performanceData,
@@ -36,13 +44,24 @@ export async function POST(req: NextRequest) {
     })
 
     // Build agent activity summary
-    const agentActivity: Record<string, { messagesSent: number; escalationsRaised: number }> = {}
+    const agentActivity: Record<string, { messagesSent: number; escalationsRaised: number; learningsProduced: number }> = {}
     const agentIds: AgentId[] = ['scout', 'strategist', 'planner', 'copywriter', 'creative', 'trend_radar', 'ceo']
 
     for (const id of agentIds) {
       agentActivity[id] = {
         messagesSent: result.messageBus.filter(m => m.sender === id).length,
         escalationsRaised: result.escalations.filter(e => e.contributingAgents.includes(id)).length,
+        learningsProduced: 0, // counted from memory store
+      }
+    }
+
+    // Count learnings per agent from memory
+    if (result.memoryStore) {
+      const allEntries = [...result.memoryStore.wins, ...result.memoryStore.losses, ...result.memoryStore.rules]
+      for (const entry of allEntries) {
+        if (agentActivity[entry.agentId]) {
+          agentActivity[entry.agentId].learningsProduced++
+        }
       }
     }
 
@@ -51,11 +70,16 @@ export async function POST(req: NextRequest) {
       messageBus: result.messageBus,
       escalations: result.escalations,
       ceoDecisions: result.ceoDecisions,
+      smartQuestions: result.smartQuestions,
+      memoryStore: result.memoryStore,
       totalTimeMs: result.totalTimeMs,
       agentActivity,
       meta: {
         totalMessages: result.messageBus.length,
         totalEscalations: result.escalations.length,
+        totalSmartQuestions: result.smartQuestions.length,
+        totalLearnings: result.memoryStore?.totalLearnings || 0,
+        cycleNumber: result.memoryStore?.cycleCount || 1,
         agentsActive: Object.entries(agentActivity).filter(([_, v]) => v.messagesSent > 0).length,
       },
     })

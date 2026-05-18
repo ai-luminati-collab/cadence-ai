@@ -7,7 +7,8 @@ import {
   Brain, Search, Target, Calendar, PenTool, Palette, Radio,
   Crown, Play, Loader2, MessageCircle, AlertTriangle, CheckCircle2,
   XCircle, ChevronDown, ChevronRight, ArrowRight, Zap, Clock,
-  Users, Activity, Shield, Send
+  Users, Activity, Shield, Send, HelpCircle, BookOpen, TrendingUp,
+  Database, Lightbulb
 } from 'lucide-react'
 
 // Agent visuals
@@ -49,7 +50,7 @@ interface EscalationItem {
   summary: string
   contributingAgents: string[]
   messageChain: MessageBusItem[]
-  proposedActions: { type: string; description: string; agent: string; confidence: number; data: any }[]
+  proposedActions: { type: string; description: string; agent: string; confidence: number; confidenceLevel?: string; citation?: string; data: any }[]
   urgency: string
   status: string
   ceoResponse?: string
@@ -66,7 +67,9 @@ export default function AgentsPage() {
   const [messageBus, setMessageBus] = useState<MessageBusItem[]>([])
   const [escalations, setEscalations] = useState<EscalationItem[]>([])
   const [ceoDecisions, setCeoDecisions] = useState<any>(null)
-  const [agentActivity, setAgentActivity] = useState<Record<string, { messagesSent: number; escalationsRaised: number }>>({})
+  const [smartQuestions, setSmartQuestions] = useState<any[]>([])
+  const [memoryStore, setMemoryStore] = useState<any>(null)
+  const [agentActivity, setAgentActivity] = useState<Record<string, { messagesSent: number; escalationsRaised: number; learningsProduced?: number }>>({})
   const [totalTime, setTotalTime] = useState(0)
   const [error, setError] = useState('')
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set())
@@ -85,6 +88,7 @@ export default function AgentsPage() {
     setMessageBus([])
     setEscalations([])
     setCeoDecisions(null)
+    setSmartQuestions([])
     setAgentActivity({})
     setLiveLog([])
     setCurrentWave(0)
@@ -160,11 +164,14 @@ Published Posts: ${publishedPosts.length}`
         setMessageBus(data.messageBus || [])
         setEscalations(data.escalations || [])
         setCeoDecisions(data.ceoDecisions)
+        setSmartQuestions(data.smartQuestions || [])
+        setMemoryStore(data.memoryStore || null)
         setAgentActivity(data.agentActivity || {})
         setTotalTime(data.totalTimeMs || 0)
         setCurrentWave(5) // Done
         setLiveLog(prev => [...prev,
           `✅ Team cycle complete — ${data.meta?.totalMessages || 0} messages, ${data.meta?.totalEscalations || 0} escalations`,
+          `🧠 ${data.meta?.totalLearnings || 0} learnings recorded • ${data.meta?.totalSmartQuestions || 0} questions for you`,
           `⏱ Total time: ${((data.totalTimeMs || 0) / 1000).toFixed(1)}s`,
         ])
       } else {
@@ -338,11 +345,13 @@ Published Posts: ${publishedPosts.length}`
       {messageBus.length > 0 && (
         <>
           {/* Stats Bar */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
             {[
               { label: 'Messages', value: messageBus.length, icon: MessageCircle, color: 'text-blue-400' },
               { label: 'Threads', value: Object.keys(threads).length, icon: ArrowRight, color: 'text-emerald-400' },
               { label: 'Escalations', value: escalations.length, icon: AlertTriangle, color: 'text-amber-400' },
+              { label: 'Learnings', value: memoryStore?.totalLearnings || 0, icon: BookOpen, color: 'text-teal-400' },
+              { label: 'Questions', value: smartQuestions.length, icon: HelpCircle, color: 'text-orange-400' },
               { label: 'Time', value: `${(totalTime / 1000).toFixed(1)}s`, icon: Clock, color: 'text-purple-400' },
             ].map(s => (
               <div key={s.label} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4">
@@ -407,12 +416,21 @@ Published Posts: ${publishedPosts.length}`
                               <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-[var(--color-bg-base)] border border-[var(--color-border-subtle)]">
                                 <Zap className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
                                 <div className="flex-1">
-                                  <div className="flex items-center gap-2 mb-1">
+                                  <div className="flex items-center gap-2 mb-1 flex-wrap">
                                     <span className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--color-bg-hover)] text-[var(--color-text-tertiary)] font-bold">{action.type}</span>
                                     <span className="text-[9px] text-[var(--color-text-muted)]">by {AGENT_META[action.agent]?.name || action.agent}</span>
-                                    <span className="text-[9px] text-emerald-400 font-bold">{(action.confidence * 100).toFixed(0)}% confident</span>
+                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                      action.confidenceLevel === 'green' ? 'bg-emerald-500/20 text-emerald-400' :
+                                      action.confidenceLevel === 'red' ? 'bg-red-500/20 text-red-400' :
+                                      'bg-yellow-500/20 text-yellow-400'
+                                    }`}>
+                                      {action.confidenceLevel?.toUpperCase() || 'YELLOW'} {(action.confidence * 100).toFixed(0)}%
+                                    </span>
                                   </div>
                                   <p className="text-xs text-[var(--color-text-secondary)]">{action.description}</p>
+                                  {action.citation && (
+                                    <p className="text-[9px] text-[var(--color-text-muted)] mt-0.5 italic">Citation: {action.citation}</p>
+                                  )}
                                 </div>
                               </div>
                             ))}
@@ -453,6 +471,98 @@ Published Posts: ${publishedPosts.length}`
                       )}
                     </div>
                   )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Smart Questions — Agents asking the user */}
+          {smartQuestions.length > 0 && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-black text-[var(--color-text-primary)] flex items-center gap-2">
+                <HelpCircle className="w-5 h-5 text-orange-400" />
+                Questions For You
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 font-bold">{smartQuestions.length}</span>
+              </h2>
+              <p className="text-xs text-[var(--color-text-muted)] -mt-2">
+                Your agents are below 60% confidence on these decisions and need your input to produce better output.
+              </p>
+              {smartQuestions.map((q: any) => {
+                const agentMeta = AGENT_META[q.agentId]
+                const AgentIcon = agentMeta?.icon || HelpCircle
+                return (
+                  <div key={q.id} className="rounded-2xl border-2 border-orange-500/20 bg-orange-500/5 p-5">
+                    <div className="flex items-start gap-4">
+                      <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${agentMeta?.gradient || 'from-gray-600 to-gray-700'} flex items-center justify-center flex-shrink-0 shadow-lg`}>
+                        <AgentIcon className="w-5 h-5 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-black text-[var(--color-text-primary)]">{q.agentName || agentMeta?.name}</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400 font-bold">
+                            {(q.confidence * 100).toFixed(0)}% confident
+                          </span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                            q.urgency === 'high' ? 'bg-red-500/20 text-red-400' :
+                            q.urgency === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
+                            'bg-blue-500/20 text-blue-400'
+                          }`}>{q.urgency}</span>
+                        </div>
+                        <p className="text-sm font-bold text-[var(--color-text-primary)] mb-2">{q.question}</p>
+                        {q.context && (
+                          <div className="text-[10px] text-[var(--color-text-muted)] mb-1">
+                            <span className="font-bold">What I know: </span>{q.context}
+                          </div>
+                        )}
+                        {q.defaultPath && (
+                          <div className="text-[10px] text-[var(--color-text-muted)] mb-1">
+                            <span className="font-bold">Default path: </span>{q.defaultPath}
+                          </div>
+                        )}
+                        {q.whyItMatters && (
+                          <div className="text-[10px] text-[var(--color-text-tertiary)]">
+                            <span className="font-bold">Why it matters: </span>{q.whyItMatters}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Brand Memory — Learnings */}
+          {memoryStore && memoryStore.totalLearnings > 0 && (
+            <div className="rounded-2xl border border-teal-500/20 bg-teal-500/5 p-6">
+              <h3 className="text-sm font-black text-[var(--color-text-primary)] mb-3 flex items-center gap-2">
+                <Database className="w-4 h-4 text-teal-400" />
+                Brand Memory — Cycle #{memoryStore.cycleCount}
+              </h3>
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <div className="text-center">
+                  <p className="text-xl font-black text-emerald-400">{memoryStore.wins?.length || 0}</p>
+                  <p className="text-[9px] text-[var(--color-text-muted)] font-bold uppercase">Wins</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xl font-black text-red-400">{memoryStore.losses?.length || 0}</p>
+                  <p className="text-[9px] text-[var(--color-text-muted)] font-bold uppercase">Losses</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xl font-black text-blue-400">{memoryStore.rules?.length || 0}</p>
+                  <p className="text-[9px] text-[var(--color-text-muted)] font-bold uppercase">Rules</p>
+                </div>
+              </div>
+              {(memoryStore.rules || []).slice(0, 5).map((rule: any, i: number) => (
+                <div key={i} className="flex items-start gap-2 py-1.5 border-t border-[var(--color-border-subtle)]">
+                  <Lightbulb className={`w-3 h-3 mt-0.5 flex-shrink-0 ${
+                    rule.confidence === 'green' ? 'text-emerald-400' :
+                    rule.confidence === 'yellow' ? 'text-yellow-400' : 'text-red-400'
+                  }`} />
+                  <div>
+                    <p className="text-xs text-[var(--color-text-secondary)]">{rule.description}</p>
+                    <p className="text-[9px] text-[var(--color-text-muted)]">{rule.citation}</p>
+                  </div>
                 </div>
               ))}
             </div>
