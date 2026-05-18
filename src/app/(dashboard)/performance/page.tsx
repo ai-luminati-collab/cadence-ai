@@ -181,12 +181,11 @@ Avg Engagement Rate: ${stats?.avgEngagement || 'N/A'}%`
           </p>
         </div>
         <button
-          onClick={handleRunAnalysis}
-          disabled={isAnalyzing}
-          className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-xs font-black uppercase tracking-widest rounded-2xl hover:from-purple-500 hover:to-blue-500 transition-all disabled:opacity-50 shadow-lg shadow-purple-500/20"
+          onClick={() => router.push('/agents')}
+          className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-xs font-black uppercase tracking-widest rounded-2xl hover:from-purple-500 hover:to-blue-500 transition-all shadow-lg shadow-purple-500/20"
         >
-          {isAnalyzing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
-          {isAnalyzing ? 'Agents Working...' : 'Run AI Analysis'}
+          <Brain className="w-4 h-4" />
+          Agent Team
         </button>
       </div>
 
