@@ -145,6 +145,7 @@ Published Posts: ${publishedPosts.length}`
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           brandContext,
+          brandId: activeBrandId,
           performanceData,
           competitorData,
           calendarData,
@@ -152,6 +153,13 @@ Published Posts: ${publishedPosts.length}`
           trendData: 'Analyze current social media trends relevant to this brand\'s industry and suggest timely content opportunities.',
         }),
       })
+
+      // Handle non-JSON responses (e.g., Vercel timeout, 502, etc.)
+      const contentType = res.headers.get('content-type') || ''
+      if (!contentType.includes('application/json')) {
+        const text = await res.text()
+        throw new Error(text.slice(0, 200) || `Server returned ${res.status} (not JSON). Possible timeout — Vercel free plan has a 60s limit.`)
+      }
 
       const data = await res.json()
 

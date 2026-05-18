@@ -27,6 +27,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing brandContext' }, { status: 400 })
     }
 
+    // Check API keys are configured
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json({ error: 'OPENAI_API_KEY not configured. Add it to Vercel environment variables.' }, { status: 500 })
+    }
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured. Add it to Vercel environment variables.' }, { status: 500 })
+    }
+
     // Reset team for fresh cycle, inject brand memory if available
     const team = resetAgentTeam(brandMemory as BrandMemoryStore | undefined)
 
@@ -85,6 +93,16 @@ export async function POST(req: NextRequest) {
     })
   } catch (err: any) {
     console.error('Agent team cycle error:', err)
-    return NextResponse.json({ error: err.message || 'Agent team cycle failed' }, { status: 500 })
+    const errorMessage = err.message || 'Agent team cycle failed'
+    const errorDetail = err.status ? `API returned ${err.status}: ${errorMessage}` : errorMessage
+    return NextResponse.json({
+      error: errorDetail,
+      errorType: err.constructor?.name || 'Unknown',
+      hint: errorMessage.includes('timeout') || errorMessage.includes('FUNCTION_INVOCATION_TIMEOUT')
+        ? 'The function timed out. Vercel free plan has a 60s limit. Upgrade to Pro for 300s.'
+        : errorMessage.includes('401') || errorMessage.includes('Incorrect API key')
+        ? 'API key is invalid. Check OPENAI_API_KEY and ANTHROPIC_API_KEY in Vercel env vars.'
+        : undefined,
+    }, { status: 500 })
   }
 }
