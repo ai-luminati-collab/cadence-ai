@@ -12,6 +12,7 @@ import React, { useEffect, useState, useRef } from 'react'
 import { sanitizeErrorForUI } from '@/lib/error-sanitizer'
 import { useBrandOSSignals } from '@/hooks/useBrandOSSignals'
 import { BrandOSEvolution } from '@/components/BrandOSEvolution'
+import { CompetitorIntel } from '@/components/ui/CompetitorIntel'
 import { parseStreamedResponse } from '@/lib/streaming-fetch'
 
 const PLATFORM_ICONS: Record<string, { icon: any, color: string }> = {
@@ -845,6 +846,11 @@ export default function StrategyPage() {
             </>)
           })()}
         </div>
+      </div>
+
+      {/* ═══ SECTION 4.5: Competitor Intelligence (AGI Layer) ═══ */}
+      <div className="mt-12 pt-8 border-t border-[var(--color-border-subtle)]">
+        <CompetitorIntel />
       </div>
 
       {/* ═══ SECTION 5: Social Media Strategy (Phase 2 — Unlockable) ═══ */}

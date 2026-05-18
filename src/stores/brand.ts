@@ -171,6 +171,10 @@ export interface BrandInfo {
   competitors?: string
   usp?: string
 
+  // AGI Data Layer — Platform Handles & Competitor Tracking
+  platformHandles?: Record<string, string>    // platform name → brand's own handle (e.g. { instagram: 'mybrand', x: 'mybrand' })
+  competitorHandles?: CompetitorHandle[]      // structured competitor list for Apify scraping
+
   // Visual DNA
   visualDirective?: string // AI-generated visual art direction (e.g., "Premium, high-contrast photography with warm amber tones")
   primaryColorHex?: string
@@ -213,6 +217,14 @@ export interface BrandInfo {
   
   // The deeply extracted visual + psychological matrix
   brandUniverse?: BrandUniverse
+}
+
+export interface CompetitorHandle {
+  id: string
+  name: string                                // display name (e.g. "Nike")
+  handles: Record<string, string>             // platform → handle (e.g. { instagram: 'nike', x: 'nike' })
+  addedAt: string                             // ISO date
+  lastScrapedAt?: string                      // ISO date
 }
 
 export interface BrandAsset {
@@ -391,6 +403,12 @@ interface BrandState {
   updateKnowledgeRule: (ruleId: string, updates: Partial<import('@/lib/brand-os-evolution').KnowledgeRule>) => void
   setLearningPhase: (phase: import('@/lib/brand-os-evolution').LearningPhase) => void
   setOnboardedAt: (date: string) => void
+
+  // AGI Data Layer
+  setPlatformHandles: (handles: Record<string, string>) => void
+  addCompetitor: (competitor: CompetitorHandle) => void
+  removeCompetitor: (competitorId: string) => void
+  updateCompetitorScrapedAt: (competitorId: string, date: string) => void
 }
 
 const initialBrandData = (): Omit<BrandData, 'id'> => ({
@@ -825,6 +843,77 @@ export const useBrandStore = create<BrandState>()(
             [state.activeBrandId]: {
               ...brand,
               brandInfo: { ...brand.brandInfo, onboardedAt: date }
+            }
+          }
+        }
+      }),
+
+      // ── AGI Data Layer Actions ──
+
+      setPlatformHandles: (handles) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        if (!brand?.brandInfo) return state;
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              brandInfo: { ...brand.brandInfo, platformHandles: handles }
+            }
+          }
+        }
+      }),
+
+      addCompetitor: (competitor) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        if (!brand?.brandInfo) return state;
+        const existing = brand.brandInfo.competitorHandles || []
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              brandInfo: { ...brand.brandInfo, competitorHandles: [...existing, competitor] }
+            }
+          }
+        }
+      }),
+
+      removeCompetitor: (competitorId) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        if (!brand?.brandInfo) return state;
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              brandInfo: {
+                ...brand.brandInfo,
+                competitorHandles: (brand.brandInfo.competitorHandles || []).filter(c => c.id !== competitorId)
+              }
+            }
+          }
+        }
+      }),
+
+      updateCompetitorScrapedAt: (competitorId, date) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        if (!brand?.brandInfo) return state;
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              brandInfo: {
+                ...brand.brandInfo,
+                competitorHandles: (brand.brandInfo.competitorHandles || []).map(c =>
+                  c.id === competitorId ? { ...c, lastScrapedAt: date } : c
+                )
+              }
             }
           }
         }
