@@ -23,6 +23,7 @@ import { findVisualReferences, researchReferences } from '@/actions/references'
 import type { VisualRef } from '@/stores/brand'
 import { sanitizeErrorForUI } from '@/lib/error-sanitizer'
 import { parseStreamedResponse } from '@/lib/streaming-fetch'
+import { PublishStatusBadge } from '@/components/ui/PublishStatusBadge'
 
 const PLATFORM_ICONS: Record<string, { icon: any, color: string }> = {
   "Meta (Instagram & Facebook)": { icon: Infinity, color: "text-blue-400" },
@@ -1491,7 +1492,11 @@ export default function CalendarPage() {
                                           {post.platform.replace(' (Instagram & Facebook)', '')}
                                        </span>
                                     </div>
-                                    {hasDraft && <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)] shadow-[0_0_8px_var(--color-success)]" />}
+                                    {post.publishStatus === 'published' || post.publishStatus === 'tracking' ? (
+                                       <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" title="Published" />
+                                    ) : hasDraft ? (
+                                       <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)] shadow-[0_0_8px_var(--color-success)]" />
+                                    ) : null}
                                 </div>
                                <div className="mt-1">
                                  {post.bucketName && (
@@ -1622,9 +1627,13 @@ export default function CalendarPage() {
                         <span className="text-[11px] font-black text-[var(--color-text-tertiary)] uppercase tracking-widest">{activePost.format}</span>
                      </div>
                   </div>
-                  <button onClick={() => setSelectedPostId(null)} className="p-4 rounded-2xl bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:bg-[var(--color-error)] hover:text-white transition-all shadow-sm border border-[var(--color-border-default)] group">
-                     <X className="w-7 h-7 group-hover:rotate-90 transition-transform duration-300"/>
-                  </button>
+                  <div className="flex items-center gap-3">
+                     {/* Mark as Published / Performance */}
+                     <PublishStatusBadge post={activePost} />
+                     <button onClick={() => setSelectedPostId(null)} className="p-4 rounded-2xl bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:bg-[var(--color-error)] hover:text-white transition-all shadow-sm border border-[var(--color-border-default)] group">
+                        <X className="w-7 h-7 group-hover:rotate-90 transition-transform duration-300"/>
+                     </button>
+                  </div>
                </div>
                <div className="flex-1 overflow-y-auto p-12 space-y-12 custom-scrollbar bg-gradient-to-b from-transparent to-[var(--color-bg-surface)]/20">
                

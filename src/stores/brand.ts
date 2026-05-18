@@ -282,6 +282,36 @@ export interface CalendarPost {
   visualReferences?: VisualRef[]
   activeReferenceId?: string | null  // which reference is approved/selected
   referenceSearchQuery?: string      // the query used (for re-searching)
+
+  // AGI Performance Tracking (Phase 1)
+  publishedAt?: string          // ISO date — when user marked as published
+  publishedUrl?: string         // actual post URL on the platform
+  publishStatus?: 'draft' | 'published' | 'tracking'  // tracking = Apify scrape scheduled
+  performanceMetrics?: PostPerformanceMetrics
+}
+
+export interface PostPerformanceMetrics {
+  likes: number
+  comments: number
+  shares: number
+  saves: number
+  views: number
+  engagementRate: number        // (likes+comments+shares+saves) / followers * 100
+  impressions?: number
+  reach?: number
+  lastUpdatedAt: string         // ISO date
+  snapshots: MetricSnapshot[]   // time-series: 24h, 48h, 7d
+}
+
+export interface MetricSnapshot {
+  type: '24h' | '48h' | '7d' | 'manual'
+  capturedAt: string
+  likes: number
+  comments: number
+  shares: number
+  saves: number
+  views: number
+  engagementRate: number
 }
 
 export interface VisualRef {
