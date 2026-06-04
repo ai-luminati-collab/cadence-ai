@@ -1602,17 +1602,15 @@ export default function CalendarPage() {
                      
                      <div className="p-8 rounded-[32px] bg-[var(--color-bg-surface)] border-2 border-[var(--color-border-default)] relative shadow-sm group/edit">
                         <p className="text-[11px] font-black text-[var(--color-accent-400)] mb-4 uppercase tracking-[0.1em]">{activePost.pillar}</p>
-                        <textarea 
+                        <textarea
                            value={activePost.topic}
                            onFocus={() => setOriginalTopic(activePost.topic)}
                            onBlur={async () => {
                              if (originalTopic && originalTopic !== activePost.topic && brandInfo) {
-                               // Track edit for pattern detection (instant, no AI call)
                                trackAndDetectPattern(
                                  activePost.id, activePost.platform, activePost.format,
                                  'topic', originalTopic, activePost.topic
                                )
-                               // Also run the existing AI-based learning extraction (async)
                                try {
                                  const { extractEditLearning } = await import('@/actions/editLearning')
                                  const res = await extractEditLearning(brandInfo, originalTopic, activePost.topic, 'topic')
@@ -1623,9 +1621,13 @@ export default function CalendarPage() {
                                } catch {}
                              }
                            }}
-                           onChange={(e) => updateCalendarPost(activePost.id, { topic: e.target.value })}
-                           className="w-full bg-transparent text-2xl font-bold text-[var(--color-text-primary)] leading-snug resize-none outline-none overflow-hidden placeholder:text-[var(--color-text-tertiary)] italic"
-                           rows={4}
+                           onChange={(e) => {
+                             updateCalendarPost(activePost.id, { topic: e.target.value })
+                             e.target.style.height = 'auto'
+                             e.target.style.height = e.target.scrollHeight + 'px'
+                           }}
+                           ref={(el) => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px' } }}
+                           className="w-full bg-transparent text-2xl font-bold text-[var(--color-text-primary)] leading-snug resize-none outline-none placeholder:text-[var(--color-text-tertiary)] italic min-h-[120px]"
                         />
                         <div className="mt-6 pt-6 border-t border-[var(--color-border-subtle)] relative flex items-center">
                            <input 
