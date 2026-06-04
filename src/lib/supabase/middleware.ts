@@ -27,10 +27,18 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // IMPORTANT: Avoid writing any logic between createServerClient and supabase.auth.getUser()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // Race auth check against a timeout so a slow/down Supabase doesn't 504 the whole app
+  let user: any = null
+  try {
+    const authResult = await Promise.race([
+      supabase.auth.getUser(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Auth timeout')), 5000))
+    ])
+    user = authResult.data?.user ?? null
+  } catch {
+    // Supabase unreachable or slow — let the request through rather than 504
+    return supabaseResponse
+  }
 
   // Protect all routes except auth routes (like /login, /signup, /auth path, etc.)
   // and public routes if any.

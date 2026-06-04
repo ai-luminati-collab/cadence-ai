@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '10mb',
     },
   },
-  // Increase timeout for AI-heavy server actions  
+  // Vercel Pro: allow AI-heavy server actions up to 5 minutes
   serverExternalPackages: ['openai', '@anthropic-ai/sdk'],
 };
 

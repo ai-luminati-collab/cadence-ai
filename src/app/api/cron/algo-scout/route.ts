@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
 
+export const maxDuration = 300
+
 /**
  * ═══════════════════════════════════════════════════════════════════
  * ALGORITHM SCOUT — Automated Weekly Cron Job
