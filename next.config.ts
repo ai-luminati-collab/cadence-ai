@@ -7,7 +7,6 @@ const nextConfig: NextConfig = {
     },
   },
   serverExternalPackages: ['openai', '@anthropic-ai/sdk'],
-  maxDuration: 300,
 };
 
 export default nextConfig;
