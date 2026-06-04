@@ -1,6 +1,5 @@
 'use server'
-
-import { askExpertAgent } from '@/lib/openai-agent'
+import { askExpertAgentPremium } from '@/lib/openai-agent'
 import { ContentDraft } from '@/stores/brand'
 
 export async function chatWithCopyCopilot(
@@ -50,7 +49,7 @@ Output your response EXACTLY as a JSON object matching this structure (no markdo
 `
 
   try {
-    const res = await askExpertAgent(prompt, true, '') // skipReview + skip KB
+    const res = await askExpertAgentPremium(prompt, '')
     if (!res.success) throw new Error("Agent failed execution.")
 
     let resultText = res.data.replace(/```json/g, '').replace(/```/g, '').trim()

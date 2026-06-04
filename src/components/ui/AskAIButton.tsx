@@ -22,20 +22,25 @@ export function AskAIButton({ fieldName, fieldDescription, context, onSelect, cu
   const [isLoading, setIsLoading] = useState(false)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [isOpen, setIsOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const handleAsk = async () => {
     if (isLoading) return
     setIsLoading(true)
     setIsOpen(true)
     setSuggestions([])
+    setError(null)
 
     try {
       const res = await suggestFieldValue(fieldName, fieldDescription, context)
       if (res.success && res.suggestions) {
         setSuggestions(res.suggestions)
+      } else {
+        setError(res.error || 'AI could not generate suggestions. Please try again.')
       }
     } catch (e) {
       console.error("Ask AI failed:", e)
+      setError('AI service unavailable. Please try again.')
     } finally {
       setIsLoading(false)
     }
@@ -63,6 +68,7 @@ export function AskAIButton({ fieldName, fieldDescription, context, onSelect, cu
   const closeMenu = () => {
     setIsOpen(false)
     setSuggestions([])
+    setError(null)
   }
 
   return (
@@ -86,7 +92,12 @@ export function AskAIButton({ fieldName, fieldDescription, context, onSelect, cu
 
       {isOpen && (
         <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
-          {isLoading ? (
+          {error ? (
+            <div className="flex items-center gap-3 p-4 rounded-xl bg-red-50 border border-red-200">
+              <span className="text-xs font-bold text-red-600">{error}</span>
+              <button type="button" onClick={handleAsk} className="text-xs font-black text-red-500 underline ml-auto shrink-0">Retry</button>
+            </div>
+          ) : isLoading ? (
             <div className="flex items-center gap-3 p-4 rounded-xl bg-blue-50 border border-blue-100">
               <div className="w-5 h-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
               <span className="text-xs font-bold text-blue-600">Analyzing your brand context...</span>

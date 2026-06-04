@@ -123,6 +123,16 @@ export interface UploadedDoc {
   extractedContent?: string // AI-extracted text
 }
 
+// ── Visual Architecture & Brand Universe ──
+export interface BrandUniverse {
+  lightingCode: string       // e.g. "Harsh direct flash, high contrast"
+  compositionCode: string    // e.g. "Subjects dead-center, extreme macro"
+  colorGrading: string       // e.g. "Desaturated greens, warm amber highlights"
+  textureCode: string        // e.g. "Heavy 35mm film grain, soft focus"
+  tgRelatability: string     // e.g. "Use these elements to evoke late-night hustle for 25-34yo founders"
+  negativeRules: string[]    // Top 3 absolute NEVERs for the image AI
+}
+
 // ── AI Evolution Tracking ──
 export interface GenerationEvent {
   postId: string
@@ -161,7 +171,12 @@ export interface BrandInfo {
   competitors?: string
   usp?: string
 
+  // AGI Data Layer — Platform Handles & Competitor Tracking
+  platformHandles?: Record<string, string>    // platform name → brand's own handle (e.g. { instagram: 'mybrand', x: 'mybrand' })
+  competitorHandles?: CompetitorHandle[]      // structured competitor list for Apify scraping
+
   // Visual DNA
+  visualDirective?: string // AI-generated visual art direction (e.g., "Premium, high-contrast photography with warm amber tones")
   primaryColorHex?: string
   secondaryColorHex?: string
   additionalColors?: string[]
@@ -170,9 +185,14 @@ export interface BrandInfo {
 
   extraNotes?: string
 
-  // The Dynamic Brain
+  // The Dynamic Brain (Legacy — flat rules, migrated to structured on first load)
   aiKnowledgeBase?: string[]
   pendingInsights?: string[]
+
+  // Structured Knowledge Base (Evolution Engine)
+  knowledgeRules?: import('@/lib/brand-os-evolution').KnowledgeRule[]
+  learningPhase?: import('@/lib/brand-os-evolution').LearningPhase
+  onboardedAt?: string // ISO date — used to compute window_day for convergence
 
   // Product/Service Intelligence
   coreProducts?: string[] // Anti-hallucination anchor: exact product/menu names the AI MUST use
@@ -194,6 +214,17 @@ export interface BrandInfo {
 
   // Visual Guardrails (AI-derived + user-edited)
   visualGuardrails?: VisualGuardrail[]
+  
+  // The deeply extracted visual + psychological matrix
+  brandUniverse?: BrandUniverse
+}
+
+export interface CompetitorHandle {
+  id: string
+  name: string                                // display name (e.g. "Nike")
+  handles: Record<string, string>             // platform → handle (e.g. { instagram: 'nike', x: 'nike' })
+  addedAt: string                             // ISO date
+  lastScrapedAt?: string                      // ISO date
 }
 
 export interface BrandAsset {
@@ -251,6 +282,36 @@ export interface CalendarPost {
   visualReferences?: VisualRef[]
   activeReferenceId?: string | null  // which reference is approved/selected
   referenceSearchQuery?: string      // the query used (for re-searching)
+
+  // AGI Performance Tracking (Phase 1)
+  publishedAt?: string          // ISO date — when user marked as published
+  publishedUrl?: string         // actual post URL on the platform
+  publishStatus?: 'draft' | 'published' | 'tracking'  // tracking = Apify scrape scheduled
+  performanceMetrics?: PostPerformanceMetrics
+}
+
+export interface PostPerformanceMetrics {
+  likes: number
+  comments: number
+  shares: number
+  saves: number
+  views: number
+  engagementRate: number        // (likes+comments+shares+saves) / followers * 100
+  impressions?: number
+  reach?: number
+  lastUpdatedAt: string         // ISO date
+  snapshots: MetricSnapshot[]   // time-series: 24h, 48h, 7d
+}
+
+export interface MetricSnapshot {
+  type: '24h' | '48h' | '7d' | 'manual'
+  capturedAt: string
+  likes: number
+  comments: number
+  shares: number
+  saves: number
+  views: number
+  engagementRate: number
 }
 
 export interface VisualRef {
@@ -300,6 +361,7 @@ export interface BrandData {
   hasOnboarded: boolean
   brandInfo: BrandInfo | null
   strategy: Strategy | null
+  socialStrategyGenerated: boolean
   calendar: CalendarPost[] | null
   contentDrafts: Record<string, ContentDraft>
   draftHistory: Record<string, ContentDraft[]> // A/B Memory: previous variants per post
@@ -339,6 +401,7 @@ interface BrandState {
   // Actions for the active brand
   setBrandInfo: (info: BrandInfo) => void
   setStrategy: (strategy: Strategy) => void
+  mergeSocialStrategy: (socialData: Partial<Strategy>) => void
   completeOnboarding: () => void
 
   setCalendar: (posts: CalendarPost[]) => void
@@ -363,12 +426,26 @@ interface BrandState {
   // Edit Pattern Detection
   addEditEvent: (event: EditEventRecord) => void
   dismissPattern: (patternKey: string) => void
+
+  // Brand OS Evolution Engine
+  addKnowledgeRule: (rule: import('@/lib/brand-os-evolution').KnowledgeRule) => void
+  removeKnowledgeRule: (ruleId: string) => void
+  updateKnowledgeRule: (ruleId: string, updates: Partial<import('@/lib/brand-os-evolution').KnowledgeRule>) => void
+  setLearningPhase: (phase: import('@/lib/brand-os-evolution').LearningPhase) => void
+  setOnboardedAt: (date: string) => void
+
+  // AGI Data Layer
+  setPlatformHandles: (handles: Record<string, string>) => void
+  addCompetitor: (competitor: CompetitorHandle) => void
+  removeCompetitor: (competitorId: string) => void
+  updateCompetitorScrapedAt: (competitorId: string, date: string) => void
 }
 
 const initialBrandData = (): Omit<BrandData, 'id'> => ({
   hasOnboarded: false,
   brandInfo: null,
   strategy: null,
+  socialStrategyGenerated: false,
   calendar: null,
   contentDrafts: {},
   draftHistory: {},
@@ -502,6 +579,21 @@ export const useBrandStore = create<BrandState>()(
           brands: {
             ...state.brands,
             [state.activeBrandId]: { ...state.brands[state.activeBrandId], strategy }
+          }
+        }
+      }),
+
+      mergeSocialStrategy: (socialData: Partial<Strategy>) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              strategy: { ...brand.strategy, ...socialData } as Strategy,
+              socialStrategyGenerated: true,
+            }
           }
         }
       }),
@@ -691,6 +783,168 @@ export const useBrandStore = create<BrandState>()(
           brands: {
             ...state.brands,
             [state.activeBrandId]: { ...brand, dismissedPatterns: dismissed }
+          }
+        }
+      }),
+
+      // ── Brand OS Evolution Engine ──
+
+      addKnowledgeRule: (rule) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        if (!brand?.brandInfo) return state;
+        const currentRules = brand.brandInfo.knowledgeRules || []
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              brandInfo: {
+                ...brand.brandInfo,
+                knowledgeRules: [...currentRules, rule]
+              }
+            }
+          }
+        }
+      }),
+
+      removeKnowledgeRule: (ruleId) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        if (!brand?.brandInfo) return state;
+        const currentRules = brand.brandInfo.knowledgeRules || []
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              brandInfo: {
+                ...brand.brandInfo,
+                knowledgeRules: currentRules.filter(r => r.id !== ruleId)
+              }
+            }
+          }
+        }
+      }),
+
+      updateKnowledgeRule: (ruleId, updates) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        if (!brand?.brandInfo) return state;
+        const currentRules = brand.brandInfo.knowledgeRules || []
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              brandInfo: {
+                ...brand.brandInfo,
+                knowledgeRules: currentRules.map(r =>
+                  r.id === ruleId ? { ...r, ...updates } : r
+                )
+              }
+            }
+          }
+        }
+      }),
+
+      setLearningPhase: (phase) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        if (!brand?.brandInfo) return state;
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              brandInfo: { ...brand.brandInfo, learningPhase: phase }
+            }
+          }
+        }
+      }),
+
+      setOnboardedAt: (date) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        if (!brand?.brandInfo) return state;
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              brandInfo: { ...brand.brandInfo, onboardedAt: date }
+            }
+          }
+        }
+      }),
+
+      // ── AGI Data Layer Actions ──
+
+      setPlatformHandles: (handles) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        if (!brand?.brandInfo) return state;
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              brandInfo: { ...brand.brandInfo, platformHandles: handles }
+            }
+          }
+        }
+      }),
+
+      addCompetitor: (competitor) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        if (!brand?.brandInfo) return state;
+        const existing = brand.brandInfo.competitorHandles || []
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              brandInfo: { ...brand.brandInfo, competitorHandles: [...existing, competitor] }
+            }
+          }
+        }
+      }),
+
+      removeCompetitor: (competitorId) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        if (!brand?.brandInfo) return state;
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              brandInfo: {
+                ...brand.brandInfo,
+                competitorHandles: (brand.brandInfo.competitorHandles || []).filter(c => c.id !== competitorId)
+              }
+            }
+          }
+        }
+      }),
+
+      updateCompetitorScrapedAt: (competitorId, date) => set((state) => {
+        if (!state.activeBrandId) return state;
+        const brand = state.brands[state.activeBrandId]
+        if (!brand?.brandInfo) return state;
+        return {
+          brands: {
+            ...state.brands,
+            [state.activeBrandId]: {
+              ...brand,
+              brandInfo: {
+                ...brand.brandInfo,
+                competitorHandles: (brand.brandInfo.competitorHandles || []).map(c =>
+                  c.id === competitorId ? { ...c, lastScrapedAt: date } : c
+                )
+              }
+            }
           }
         }
       }),

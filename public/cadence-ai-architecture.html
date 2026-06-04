@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cadence AI — Platform Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface-2: #1a1a27;
+    --border: #2a2a3e;
+    --text: #e8e8f0;
+    --text-dim: #8888a8;
+    --accent: #6c5ce7;
+    --accent-glow: #a29bfe;
+    --green: #00d2a0;
+    --orange: #f0932b;
+    --red: #e74c3c;
+    --blue: #4fc3f7;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  /* ─── Slide Container ───────────────────────── */
+  .slide {
+    min-height: 100vh;
+    padding: 60px 80px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+    page-break-after: always;
+  }
+
+  .slide::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--green), var(--accent));
+    opacity: 0.6;
+  }
+
+  /* ─── Typography ────────────────────────────── */
+  .slide-number {
+    position: absolute;
+    top: 30px;
+    right: 40px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+  }
+
+  .logo-mark {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: var(--accent-glow);
+    margin-bottom: 24px;
+  }
+
+  h1 {
+    font-size: 52px;
+    font-weight: 800;
+    line-height: 1.1;
+    margin-bottom: 16px;
+    background: linear-gradient(135deg, #fff 0%, var(--accent-glow) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  h2 {
+    font-size: 36px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: #fff;
+  }
+
+  h3 {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--accent-glow);
+  }
+
+  .subtitle {
+    font-size: 20px;
+    color: var(--text-dim);
+    max-width: 760px;
+    line-height: 1.7;
+    margin-bottom: 40px;
+  }
+
+  p { font-size: 16px; color: var(--text-dim); line-height: 1.8; }
+
+  /* ─── Cards Grid ────────────────────────────── */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+    margin-top: 32px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    transition: border-color 0.3s;
+  }
+
+  .card:hover { border-color: var(--accent); }
+
+  .card .icon {
+    font-size: 32px;
+    margin-bottom: 16px;
+    display: block;
+  }
+
+  .card h3 { color: #fff; font-size: 18px; margin-bottom: 10px; }
+  .card p { font-size: 14px; }
+
+  /* ─── Pipeline Diagram ──────────────────────── */
+  .pipeline {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 32px 0;
+    flex-wrap: wrap;
+  }
+
+  .pipeline-node {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    text-align: center;
+    min-width: 160px;
+  }
+
+  .pipeline-node.active { border-color: var(--accent); box-shadow: 0 0 20px rgba(108, 92, 231, 0.15); }
+  .pipeline-node.green { border-color: var(--green); box-shadow: 0 0 20px rgba(0, 210, 160, 0.15); }
+  .pipeline-node.orange { border-color: var(--orange); box-shadow: 0 0 20px rgba(240, 147, 43, 0.15); }
+
+  .pipeline-node .node-label {
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+
+  .pipeline-node .node-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #fff;
+  }
+
+  .pipeline-node .node-detail {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+
+  .pipeline-arrow {
+    font-size: 24px;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  /* ─── Stats Row ─────────────────────────────── */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 20px;
+    margin: 32px 0;
+  }
+
+  .stat {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+  }
+
+  .stat .stat-value {
+    font-size: 42px;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--accent-glow), var(--green));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .stat .stat-label {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  /* ─── Table ─────────────────────────────────── */
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 24px 0;
+    font-size: 14px;
+  }
+
+  .data-table th {
+    text-align: left;
+    padding: 14px 20px;
+    background: var(--surface);
+    color: var(--accent-glow);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .data-table td {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+
+  .data-table tr:hover td { color: var(--text); background: var(--surface); }
+
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .badge.green { background: rgba(0, 210, 160, 0.15); color: var(--green); }
+  .badge.purple { background: rgba(108, 92, 231, 0.15); color: var(--accent-glow); }
+  .badge.orange { background: rgba(240, 147, 43, 0.15); color: var(--orange); }
+  .badge.blue { background: rgba(79, 195, 247, 0.15); color: var(--blue); }
+
+  /* ─── Lists ─────────────────────────────────── */
+  .feature-list {
+    list-style: none;
+    margin: 20px 0;
+  }
+
+  .feature-list li {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    font-size: 15px;
+    color: var(--text-dim);
+  }
+
+  .feature-list li .check {
+    color: var(--green);
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  /* ─── Code Block ────────────────────────────── */
+  .code-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--text-dim);
+    overflow-x: auto;
+    margin: 20px 0;
+    line-height: 1.8;
+  }
+
+  .code-block .comment { color: #666; }
+  .code-block .keyword { color: var(--accent-glow); }
+  .code-block .string { color: var(--green); }
+  .code-block .func { color: var(--orange); }
+
+  /* ─── Two Column ────────────────────────────── */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    margin-top: 24px;
+  }
+
+  /* ─── Print Styles ──────────────────────────── */
+  @media print {
+    .slide { padding: 40px 50px; border-bottom: none; }
+    h1 { font-size: 36px; -webkit-text-fill-color: #333; }
+    h2 { font-size: 28px; color: #333; }
+    body { background: #fff; color: #333; }
+    .card, .pipeline-node, .stat, .code-block, .data-table th, .data-table td { border-color: #ddd; background: #fafafa; }
+    .stat .stat-value { -webkit-text-fill-color: #6c5ce7; background: none; color: #6c5ce7; }
+    p, .feature-list li, .data-table td { color: #555; }
+    .code-block { background: #f4f4f4; border: 1px solid #ccc; color: #333; }
+    .pipeline-node .node-title { color: #222; }
+    .card h3 { color: #222; }
+    .slide::before { display: none; }
+  }
+
+  @media (max-width: 768px) {
+    .slide { padding: 40px 24px; }
+    h1 { font-size: 32px; }
+    .two-col { grid-template-columns: 1fr; }
+    .pipeline { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════ SLIDE 1: TITLE ═══════════════════ -->
+<div class="slide">
+  <span class="slide-number">01 / 11</span>
+  <div class="logo-mark">Cadence AI ™</div>
+  <h1>End-to-End <br>Platform Architecture</h1>
+  <p class="subtitle">
+    How Cadence AI crawls, thinks, learns, generates, and iterates.
+    A deep technical breakdown of the onboarding engine, the neural reasoning pipeline, the strategic pattern library, and the execution engine.
+  </p>
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-value">5</div>
+      <div class="stat-label">Intelligence Layers</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">2</div>
+      <div class="stat-label">AI Review Stages</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">21</div>
+      <div class="stat-label">Marketing Playbooks</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">100%</div>
+      <div class="stat-label">Auto Onboarding</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ SLIDE 2: BRAND INTAKE ═══════════════════ -->
+<div class="slide">
+  <span class="slide-number">02 / 11</span>
+  <div class="logo-mark">Phase 1: Deep Intake</div>
+  <h2>The Zero-Friction Onboarding Engine</h2>
+  <p class="subtitle">
+    Users don't manually answer 50 questions about their brand. They just provide a URL. Cadence AI uses headless browsing and multi-modal processing to construct a semantic "Brand OS."
+  </p>
+
+  <div class="cards" style="grid-template-columns: repeat(3, 1fr);">
+    <div class="card">
+      <span class="icon">🕸️</span>
+      <h3>Jina AI Web Crawler</h3>
+      <p>Bypasses anti-bot protections to scrape down the target site. Converts messy HTML into clean, semantically rich Markdown context.</p>
+    </div>
+    <div class="card">
+      <span class="icon">🖼️</span>
+      <h3>Vision & OCR Pipeline</h3>
+      <p>Processes product images and screenshots using OCR and Vision models to extract deep context beyond just the written website copy.</p>
+    </div>
+    <div class="card">
+      <span class="icon">🔍</span>
+      <h3>Tavily Deep Research</h3>
+      <p>Runs autonomous background searches to find competitors, external reviews, and market sentiment to cross-reference brand claims.</p>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <h3>Outputs: The Brand OS</h3>
+      <ul class="feature-list">
+        <li><span class="check">◆</span> <b>Tone Fingerprint:</b> Auto-detects the brand's exact tone (e.g. "Irreverent, punchy, anti-corporate").</li>
+        <li><span class="check">◆</span> <b>Target Personas:</b> Identifies psychometrics, not just demographics.</li>
+        <li><span class="check">◆</span> <b>Core Pillars:</b> Isolates the 3-5 unique value props to hit in content.</li>
+      </ul>
+    </div>
+    <div class="code-block">
+      <span class="comment">// Example Intake Execution Log</span><br>
+      <span class="keyword">Starting Deep Crawl</span>: https://founder-site.com<br>
+      <span class="func">Jina Reader:</span> Parsed 18,204 words of Markdown...<br>
+      <span class="func">Vision AI:</span> Extracted context from 4 hero graphics...<br>
+      <span class="func">Tavily:</span> Found 3 direct competitors...<br>
+      <span class="keyword">Result</span>: Generated Living Brand OS successfully.
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ SLIDE 3: THE BRAIN ═══════════════════ -->
+<div class="slide">
+  <span class="slide-number">03 / 11</span>
+  <div class="logo-mark">Phase 2: Core Knowledge</div>
+  <h2>The Static Playbook Brain</h2>
+  <p class="subtitle">
+    Unlike generic AI tools that guess at marketing, Cadence is trained on a proprietary, server-side knowledge base
+    of 21 deep-dive digital marketing playbooks — covering every platform, algorithm, and growth tactic.
+  </p>
+  <div class="cards">
+    <div class="card">
+      <span class="icon">📱</span>
+      <h3>Platform Algorithms</h3>
+      <p>Instagram, TikTok, YouTube, LinkedIn, X — each with dedicated playbooks covering ranking signals, formats, and retention mechanics.</p>
+    </div>
+    <div class="card">
+      <span class="icon">✍️</span>
+      <h3>Creative & Copywriting</h3>
+      <p>Persuasion psychology, viral hook frameworks, tone calibration, and strict anti-"AI smog" guardrails protecting every word.</p>
+    </div>
+    <div class="card">
+      <span class="icon">📊</span>
+      <h3>Analytics & Experimentation</h3>
+      <p>A/B testing protocols, statistical significance thresholds, and incrementality models built into the foundation.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ SLIDE 4: STRATEGIC PATTERNS ═══════════════════ -->
+<div class="slide">
+  <span class="slide-number">04 / 11</span>
+  <div class="logo-mark">Phase 3: The Frameworks</div>
+  <h2>The Strategic Pattern Vault</h2>
+  <p class="subtitle">
+    47 battle-tested positioning and narrative frameworks. The AI doesn't just "write content" — it intentionally executes a strategic warfare playbook, enforced aggressively.
+  </p>
+
+  <div class="two-col">
+    <div>
+      <h3>Positioning Patterns (How to Win)</h3>
+      <ul class="feature-list">
+        <li><span class="check">◆</span> The Category Creator — Own a new market</li>
+        <li><span class="check">◆</span> The Anti-Thesis — Attack the status quo</li>
+        <li><span class="check">◆</span> The Controversial Truth — Lead with polarizing facts</li>
+        <li><span class="check">◆</span> The Enterprise Trojan Horse — Bottom-up wedges</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Narrative Patterns (How to Speak)</h3>
+      <ul class="feature-list">
+        <li><span class="check">◆</span> The Founder's Raw Journal — Zero polish</li>
+        <li><span class="check">◆</span> The Data Assassin — Only heavy statistics</li>
+        <li><span class="check">◆</span> The Myth Destroyer — Dismantle industry lies</li>
+        <li><span class="check">◆</span> ... and 40 more patterns encoded.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="code-block">
+    <span class="comment">// Each pattern enforces mandatory guardrails:</span><br>
+    <span class="keyword">Pattern selected</span>: <span class="string">"The Anti-Thesis"</span><br>
+    <span class="keyword">Markers</span>: [<span class="string">"Name enemy explicitly"</span>, <span class="string">"Comparison tables"</span>]<br>
+    <span class="keyword">Banned Words</span>: [<span class="string">"innovative"</span>, <span class="string">"cutting-edge"</span>, <span class="string">"best-in-class"</span>]<br>
+    <span class="func">AI Engine is structurally prevented from ignoring these limits.</span>
+  </div>
+</div>
+
+<!-- ═══════════════════ SLIDE 5: ALGORITHM SCOUT ═══════════════════ -->
+<div class="slide">
+  <span class="slide-number">05 / 11</span>
+  <div class="logo-mark">Phase 4: Live Data</div>
+  <h2>Live Algorithm Scout</h2>
+  <p class="subtitle">
+    A fully automated serverless pipeline that scrapes the live web weekly to discover and verify organic algorithm changes — injecting them directly into the context stack.
+  </p>
+
+  <div class="pipeline">
+    <div class="pipeline-node active">
+      <div class="node-label">Sun 3AM UTC</div>
+      <div class="node-title">Vercel Cron</div>
+      <div class="node-detail">Automated Trigger</div>
+    </div>
+    <span class="pipeline-arrow">→</span>
+    <div class="pipeline-node">
+      <div class="node-label">Step 1</div>
+      <div class="node-title">Deep Web Search</div>
+      <div class="node-detail">OpenAI native tool</div>
+    </div>
+    <span class="pipeline-arrow">→</span>
+    <div class="pipeline-node green">
+      <div class="node-label">Step 2</div>
+      <div class="node-title">AI Distillation</div>
+      <div class="node-detail">Strict JSON extraction</div>
+    </div>
+    <span class="pipeline-arrow">→</span>
+    <div class="pipeline-node orange">
+      <div class="node-label">Step 3</div>
+      <div class="node-title">Supabase Memory</div>
+      <div class="node-detail">0-Latency API hits</div>
+    </div>
+  </div>
+
+  <div class="cards" style="grid-template-columns: repeat(3, 1fr);">
+    <div class="card">
+      <span class="icon">🛡️</span>
+      <h3>Anti-Guru Filter</h3>
+      <p>Only ingests rules implicitly backed by verified data sets or official platform announcements. No speculation.</p>
+    </div>
+    <div class="card">
+      <span class="icon">🔒</span>
+      <h3>Failure Resilience</h3>
+      <p>If web search or distillation fails, existing cache is NEVER overwritten. We never break the AI due to upstreams.</p>
+    </div>
+    <div class="card">
+      <span class="icon">⚡</span>
+      <h3>Zero Latency</h3>
+      <p>Live rules are pulled from Supabase via `pgvector` & global cache with sub-30ms read paths for instantaneous logic.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ SLIDE 6: THE PIPELINE ═══════════════════ -->
+<div class="slide">
+  <span class="slide-number">06 / 11</span>
+  <div class="logo-mark">Phase 5: The Generator</div>
+  <h2>The Two-Tier Reasoning Pipeline</h2>
+  <p class="subtitle">
+    Every piece of complex content undergoes a dual-pass evaluation.
+    A fast "Worker" drafts it comprehensively. A ruthless "Boss" reviews, edits, and kills "AI smog."
+  </p>
+
+  <div class="pipeline">
+    <div class="pipeline-node">
+      <div class="node-label">Input</div>
+      <div class="node-title">User Prompt</div>
+      <div class="node-detail">Tone + Pillars + Patterns</div>
+    </div>
+    <span class="pipeline-arrow">→</span>
+    <div class="pipeline-node active">
+      <div class="node-label">Stage 1 — Worker</div>
+      <div class="node-title">GPT-5.4-mini</div>
+      <div class="node-detail">Rapid Draft (~3-8s)</div>
+    </div>
+    <span class="pipeline-arrow">→</span>
+    <div class="pipeline-node green">
+      <div class="node-label">Stage 2 — Boss</div>
+      <div class="node-title">GPT-5.4 Premium</div>
+      <div class="node-detail">Review Layer (~5-15s)</div>
+    </div>
+    <span class="pipeline-arrow">→</span>
+    <div class="pipeline-node orange">
+      <div class="node-label">Output</div>
+      <div class="node-title">Elite Content</div>
+      <div class="node-detail">Zero Generic Smog</div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="card">
+      <h3>🏃‍♂️ The Worker (Stage 1)</h3>
+      <p>Hits the ground running. Aggregates the huge context stack (Playbooks, Brand OS, Tone, Audience) and builds a structurally sound draft rapidly.</p>
+    </div>
+    <div class="card">
+      <h3>🗡️ The Boss (Stage 2)</h3>
+      <p>The "Ruthless Creative Director". Responsible entirely for tone lock, cultural nuances, and completely banning ChatGPT-isms like "Unlock your potential," "Elevate," or "Seamless."</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ SLIDE 7: CALENDAR ENGINE ═══════════════════ -->
+<div class="slide">
+  <span class="slide-number">07 / 11</span>
+  <div class="logo-mark">Phase 6: Execution</div>
+  <h2>Strategic Calendar Mapping</h2>
+  <p class="subtitle">
+    The final output isn't a long block of text. The "Premium Single-Tier" orchestration model transforms the raw intelligence into a robust, day-by-day JSON calendar interface.
+  </p>
+  
+  <div class="cards" style="grid-template-columns: repeat(2, 1fr);">
+    <div class="card">
+      <span class="icon">📅</span>
+      <h3>1. One-Shot Full Month Mapping</h3>
+      <p>Instead of generating post-by-post, the Premium layer receives the full Brand OS, the Live Algorithms, and the 4-week context to guarantee narrative sequencing. It ensures a story evolves naturally from Week 1 to Week 4.</p>
+    </div>
+    <div class="card">
+      <span class="icon">🔌</span>
+      <h3>2. Cross-Platform Nuance</h3>
+      <p>The AI isolates content by platform context. A Tuesday post is split natively: the LinkedIn draft leans heavily on textual data, while the Instagram output structures itself for a visual Carousel hook.</p>
+    </div>
+    <div class="card">
+      <span class="icon">🎯</span>
+      <h3>3. Content Ratio Automation</h3>
+      <p>Autonomously balances <em>Top of Funnel</em> (high-reach hooks), <em>Middle of Funnel</em> (deep-dive value), and <em>Bottom of Funnel</em> (direct response conversion) across the UI grid.</p>
+    </div>
+    <div class="card">
+      <span class="icon">🔗</span>
+      <h3>4. Immediate UI Injection</h3>
+      <p>Strict schema outputs (Response Format JSON) flow directly into our Next.js + React drag-and-drop dashboard for immediate human approval, avoiding parsing errors seamlessly.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ SLIDE 8: CREATIVE DIRECTOR ═══════════════════ -->
+<div class="slide">
+  <span class="slide-number">08 / 11</span>
+  <div class="logo-mark">Phase 7: Refinement</div>
+  <h2>The "Ask AI" Creative Director Chat</h2>
+  <p class="subtitle">
+    Generation is never perfect on the first try. Instead of forcing users to write complex prompts to fix issues, we built an iterative chat interface anchored specifically to existing content blocks.
+  </p>
+
+  <div class="two-col">
+    <div>
+      <ul class="feature-list">
+        <li><span class="check">◆</span> <b>Context-Aware Refinement:</b> The AI already holds the Brand OS, Tone Fingerprint, and Calendar strategy. When a user says "Make this angrier," it applies the attitude shift <em>without breaking the brand positioning</em>.</li>
+        <li><span class="check">◆</span> <b>Live Diff Injection:</b> Updates are passed directly back into the UI state machine, so users see edits instantly on their calendar canvas.</li>
+        <li><span class="check">◆</span> <b>Actionable Suggestions:</b> If users are stuck, the Boss AI proactively offers alternative strategic angles (e.g., "Pivot this to a Myth Destroyer pattern").</li>
+        <li><span class="check">◆</span> <b>Vercel AI SDK Integration:</b> Fully streamed conversational responses for zero-latency feeling.</li>
+      </ul>
+    </div>
+    
+    <div class="code-block" style="margin-top: 0;">
+      <span class="comment">// Standard Prompts failing:</span><br>
+      <span class="keyword">User</span>: <span class="string">"Make it funny" (Gets generic dad jokes)</span><br><br>
+      <span class="comment">// The Creative Director Mode:</span><br>
+      <span class="keyword">System</span>: <span class="string">"Refining Draft ID_3914. Applying Brand OS Tone: 'Cynical but helpful'. Applying Pattern: 'The Data Assassin'."</span><br>
+      <span class="keyword">User</span>: <span class="string">"Punch up the hook."</span><br>
+      <span class="func">Boss AI</span>: <span class="string">"Rewritten. Added statistics. Eliminated generic intro."</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ SLIDE 9: CONTEXT STACK ═══════════════════ -->
+<div class="slide">
+  <span class="slide-number">09 / 11</span>
+  <div class="logo-mark">Deep Dive</div>
+  <h2>The Neural Context Stack</h2>
+  <p class="subtitle">
+    Every time Cadence hits the LLM, this is the exact knowledge hierarchy injected into the Context Window — ordered from highest to lowest priority.
+  </p>
+
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Priority</th>
+        <th>Context Layer</th>
+        <th>Size</th>
+        <th>Source</th>
+        <th>Update Frequency</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="badge purple">P0</span></td>
+        <td><strong>Live Algorithm Intelligence</strong></td>
+        <td>~500 tokens</td>
+        <td>Supabase (cached)</td>
+        <td>Weekly (automated)</td>
+      </tr>
+      <tr>
+        <td><span class="badge green">P1</span></td>
+        <td><strong>Strategic Pattern Vault</strong></td>
+        <td>~25,000 tokens</td>
+        <td>Markdown (server)</td>
+        <td>Manual (curated)</td>
+      </tr>
+      <tr>
+        <td><span class="badge blue">P2</span></td>
+        <td><strong>21 Marketing Playbooks</strong></td>
+        <td>~20,000 tokens</td>
+        <td>Markdown (server)</td>
+        <td>Manual (curated)</td>
+      </tr>
+      <tr>
+        <td><span class="badge orange">P3</span></td>
+        <td><strong>Brand-Specific OS</strong></td>
+        <td>~2,000 tokens</td>
+        <td>User-generated</td>
+        <td>Per brand (dynamic)</td>
+      </tr>
+      <tr>
+        <td><span class="badge purple">P4</span></td>
+        <td><strong>User Prompt & Task</strong></td>
+        <td>~200-1000 tkns</td>
+        <td>User session</td>
+        <td>Per request</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="code-block">
+    <span class="comment">// With OpenAI Prompt Caching: 90% discount on static layers (P1 + P2)</span><br>
+    <span class="keyword">Total Context In:</span> ≈ <span class="string">~47,700 tokens</span><br>
+    <span class="keyword">Total Generation Out:</span> <span class="string">~300 - 2,500 tokens</span>
+  </div>
+</div>
+
+<!-- ═══════════════════ SLIDE 10: ECONOMICS ═══════════════════ -->
+<div class="slide">
+  <span class="slide-number">10 / 11</span>
+  <div class="logo-mark">Deep Dive</div>
+  <h2>Token Economics & Overhead</h2>
+  <p class="subtitle">
+    Built for scale. Cost mapping for the orchestration pipeline utilizing GPT-5.4 pricing tiers alongside OpenAI's caching.
+  </p>
+
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Feature Component</th>
+        <th>Model Deployed</th>
+        <th>Avg Input Tokens</th>
+        <th>Avg Output Tokens</th>
+        <th>Est. Cost / Run</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Auto Brand Research</strong></td>
+        <td><span class="badge green">5.4-mini</span></td>
+        <td>~25,000</td>
+        <td>~1,000</td>
+        <td>$0.02</td>
+      </tr>
+      <tr>
+        <td><strong>Strategy Core Generation</strong></td>
+        <td><span class="badge purple">5.4 Premium Boss</span></td>
+        <td>~47,000</td>
+        <td>~2,000</td>
+        <td>$0.20 – $0.35</td>
+      </tr>
+      <tr>
+        <td><strong>Full Monthly Calendar</strong></td>
+        <td><span class="badge purple">5.4 Premium</span></td>
+        <td>~23,000</td>
+        <td>~2,500</td>
+        <td>$0.09</td>
+      </tr>
+      <tr>
+        <td><strong>Single Content Draft</strong></td>
+        <td><span class="badge orange">2-Stage Engine</span></td>
+        <td>~42,300</td>
+        <td>~600</td>
+        <td>$0.07</td>
+      </tr>
+      <tr>
+        <td><strong>Director Chat Edit</strong></td>
+        <td><span class="badge green">5.4-mini</span></td>
+        <td>~21,000</td>
+        <td>~200</td>
+        <td>$0.01</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="stats" style="margin-top: 32px;">
+    <div class="stat">
+      <div class="stat-value">$2.10</div>
+      <div class="stat-label">Full Month of Content (x30)</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">90%</div>
+      <div class="stat-label">Savings via Prompt Cache</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">$1000+</div>
+      <div class="stat-label">Agency equivalent value</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ SLIDE 11: SUMMARY ═══════════════════ -->
+<div class="slide">
+  <span class="slide-number">11 / 11</span>
+  <div class="logo-mark">Summary</div>
+  <h2>The Fully Autonomous SaaS Stack</h2>
+  <p class="subtitle">
+    Cadence AI is not an OpenAI wrapper. It is a purpose-built, structurally robust reasoning engine simulating a $15,000/mo elite creative agency.
+  </p>
+
+  <div class="cards" style="grid-template-columns: repeat(3, 1fr);">
+    <div class="card" style="border-left: 3px solid var(--accent);">
+      <h3>1. Automated Knowledge</h3>
+      <p>Crawls brand URLs natively using Jina and Vision models to extract deep intelligence with zero user effort.</p>
+    </div>
+    <div class="card" style="border-left: 3px solid var(--green);">
+      <h3>2. Static & Live Rules</h3>
+      <p>Forces the AI to obey 21 marketing playbooks, 47 positioning patterns, and live scraped algorithm findings natively.</p>
+    </div>
+    <div class="card" style="border-left: 3px solid var(--orange);">
+      <h3>3. The Boss Editor</h3>
+      <p>Prevents AI language hallucination natively. A secondary orchestrator that actively hunts and deletes generic terminology.</p>
+    </div>
+    <div class="card" style="border-left: 3px solid var(--blue);">
+      <h3>4. Strategic JSON Mappings</h3>
+      <p>Maps highly abstract marketing thoughts into 30-day concrete execution calendars via single-shot Premium reasoning models.</p>
+    </div>
+    <div class="card" style="border-left: 3px solid var(--red);">
+      <h3>5. Creative Chat Loops</h3>
+      <p>Empowers users with a Vercel-SDK conversational interface to tweak drafts cooperatively with their dedicated digital creative director.</p>
+    </div>
+  </div>
+
+  <div style="margin-top: 40px; text-align: center;">
+    <p style="font-size: 14px; color: var(--text-dim);">
+      Built by AI Luminati Collabs · Engineered for GPT-5.4 · Cadence AI v2.0
+    </p>
+  </div>
+</div>
+
+</body>
+</html>

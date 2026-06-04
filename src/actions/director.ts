@@ -1,6 +1,5 @@
 'use server'
-
-import { askExpertAgent } from '@/lib/openai-agent'
+import { askExpertAgent, askExpertAgentPremium } from '@/lib/openai-agent'
 import { BrandInfo, Strategy, CalendarPost, ContentDraft } from '@/stores/brand'
 import { getUniversalKnowledge } from '@/lib/knowledge-loader'
 import { buildBrandOSContext } from '@/lib/brand-os-context'
@@ -110,7 +109,7 @@ ${universalKB}
 `
 
   try {
-    const res = await askExpertAgent(prompt, false, brandOSContext ? '' : undefined)
+    const res = await askExpertAgentPremium(prompt, brandOSContext ? '' : undefined)
     if (!res.success || !res.data) throw new Error("Director is unavailable.")
     
     let cleanText = res.data.replace(/```json/g, '').replace(/```/g, '').trim()

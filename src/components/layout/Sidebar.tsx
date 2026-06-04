@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { LayoutDashboard, Calendar, PenTool, Settings, Sparkles, LogOut, Fingerprint } from 'lucide-react'
+import { LayoutDashboard, Calendar, PenTool, Settings, Sparkles, LogOut, Fingerprint, BarChart3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useBrandStore } from '@/stores/brand'
 import { createClient } from '@/lib/supabase/client'
@@ -11,6 +11,7 @@ const workspaceNavItems = [
   { href: '/workspace', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/strategy', label: 'Brand OS', icon: Fingerprint },
   { href: '/calendar', label: 'Calendar', icon: Calendar },
+  { href: '/performance', label: 'Performance', icon: BarChart3 },
 ]
 
 export function Sidebar() {

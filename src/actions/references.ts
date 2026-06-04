@@ -1,5 +1,4 @@
 'use server'
-
 import OpenAI from 'openai'
 import { CalendarPost, BrandInfo, Strategy } from '@/stores/brand'
 

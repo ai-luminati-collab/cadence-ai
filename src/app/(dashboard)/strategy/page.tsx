@@ -1,15 +1,19 @@
 'use client'
 
-import { generateBrandStrategy } from '@/actions/strategy'
-import { 
-  Target, MessageSquare, Zap, CheckCircle2, RefreshCw, Swords, Brain, History, 
-  ChevronDown, ChevronUp, Sparkles, BarChart3, Shield, Palette, Type, PenTool, Globe, 
+import {
+  Target, MessageSquare, Zap, CheckCircle2, RefreshCw, Swords, Brain, History,
+  ChevronDown, ChevronUp, Sparkles, BarChart3, Shield, Palette, Type, PenTool, Globe,
   Infinity, Briefcase, Music, Play, Camera, Search, Activity, Users, MessageCircle, X, Check, Download,
   Paperclip, ImagePlus, FolderOpen, Edit3, Upload, Trash2, FileText, Image as ImageIcon, Plus
 } from 'lucide-react'
 import { useBrandStore, type BrandAsset } from '@/stores/brand'
 import { useRouter } from 'next/navigation'
 import React, { useEffect, useState, useRef } from 'react'
+import { sanitizeErrorForUI } from '@/lib/error-sanitizer'
+import { useBrandOSSignals } from '@/hooks/useBrandOSSignals'
+import { BrandOSEvolution } from '@/components/BrandOSEvolution'
+import { CompetitorIntel } from '@/components/ui/CompetitorIntel'
+import { parseStreamedResponse } from '@/lib/streaming-fetch'
 
 const PLATFORM_ICONS: Record<string, { icon: any, color: string }> = {
   "Meta (Instagram & Facebook)": { icon: Infinity, color: "text-blue-400" },
@@ -182,13 +186,26 @@ function StrategyCard({ title, icon: Icon, iconColor, content, accentBorder, def
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen)
   
-  // Clean points from potential long strings/lists or accidental arrays from AI
-  const safeContent = Array.isArray(content) ? content.join('; ') : (content || '')
+  const safeContent = Array.isArray(content) ? content.join('\n') : (content || '')
   const points = safeContent
-    .split(/(?<=[.!?])\s+|;\s*|\n+|\d+\)\s*/)
-    .map(s => s.trim())
-    .filter(s => s.length > 10)
-    
+    .split(/\n+/)
+    .flatMap(line => {
+      const trimmed = line.trim()
+      if (!trimmed) return []
+      // If line is already a distinct point (starts with bullet, dash, number, or uppercase after split), keep it
+      if (/^[-•*]\s/.test(trimmed)) return [trimmed.replace(/^[-•*]\s+/, '')]
+      if (/^\d+[.)]\s/.test(trimmed)) return [trimmed.replace(/^\d+[.)]\s+/, '')]
+      // Only split on period if followed by uppercase letter (real sentence boundary, not mid-thought)
+      return trimmed.split(/(?<=[.!?])\s+(?=[A-Z])/).filter(s => s.length > 15)
+    })
+    .map(s => {
+      let clean = s.trim().replace(/[,;]+$/, '').trim()
+      if (clean && /^[a-z]/.test(clean)) clean = clean.charAt(0).toUpperCase() + clean.slice(1)
+      if (clean && !/[.!?]$/.test(clean)) clean += '.'
+      return clean
+    })
+    .filter(s => s.length > 15)
+
   const previewPoints = points.slice(0, 3)
   const hasMore = points.length > 3
 
@@ -243,13 +260,16 @@ function StrategyCard({ title, icon: Icon, iconColor, content, accentBorder, def
 
 export default function StrategyPage() {
   const router = useRouter()
-  const { brands, activeBrandId, setStrategy, setBrandInfo, addPendingInsight, setToneFingerprint, setLastKbAudit } = useBrandStore()
+  const { brands, activeBrandId, setStrategy, setBrandInfo, addPendingInsight, setToneFingerprint, setLastKbAudit, mergeSocialStrategy } = useBrandStore()
+  const signals = useBrandOSSignals() // Brand OS Evolution Engine
   const [mounted, setMounted] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isAnalyzingRefs, setIsAnalyzingRefs] = useState(false)
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null)
+  const [isGeneratingSocial, setIsGeneratingSocial] = useState(false)
+  const [socialError, setSocialError] = useState<string | null>(null)
 
   const activeBrand = activeBrandId ? brands[activeBrandId] : null
   const strategy = activeBrand?.strategy
@@ -261,25 +281,77 @@ export default function StrategyPage() {
     if (!activeBrand || !brandInfo) return
     setIsRefreshing(true)
     setError(null)
+    const MAX_RETRIES = 2
+    let lastErr: string | null = null
+
     try {
-      const res = await generateBrandStrategy(brandInfo, true)
-      if (res.success && res.data) {
-        setStrategy(res.data)
-      } else {
-        setError(res.error || "Failed to refresh strategy")
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+          const delay = 3000 * Math.pow(2, attempt - 1) + Math.random() * 1000
+          await new Promise(r => setTimeout(r, delay))
+        }
+
+        let res: Response
+        try {
+          res = await fetch('/api/generate-marketing-strategy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ brandInfo, isRefresh: true }),
+          })
+        } catch {
+          lastErr = 'Network error. Please check your connection and try again.'
+          continue
+        }
+
+        if (res.status === 504 || res.status === 502 || res.status === 503) {
+          lastErr = attempt < MAX_RETRIES
+            ? 'AI is taking longer than expected. Retrying...'
+            : 'Strategy refresh timed out. Please try again in a moment.'
+          if (attempt < MAX_RETRIES) continue
+          break
+        }
+
+        if (!res.ok) {
+          let errorMsg = `Server error (${res.status}).`
+          try { const eb = await res.json(); errorMsg = eb?.error || errorMsg } catch {}
+          if (res.status === 500 && attempt < MAX_RETRIES) { lastErr = errorMsg; continue }
+          lastErr = errorMsg
+          break
+        }
+
+        let result
+        try { result = await parseStreamedResponse(res) } catch (e: any) {
+          lastErr = e?.message || 'Received an invalid response. Please try again.'
+          break
+        }
+
+        if (result.success && result.data) {
+          setStrategy(result.data)
+          return
+        } else {
+          lastErr = result.error || 'Failed to refresh strategy'
+          break
+        }
       }
-    } catch (err) {
-      setError("An unexpected error occurred")
+      setError(sanitizeErrorForUI(lastErr || 'Failed to refresh strategy'))
+    } catch (err: any) {
+      setError(sanitizeErrorForUI(err?.message || "An unexpected error occurred"))
     } finally {
       setIsRefreshing(false)
     }
   }
 
   const handleExport = async () => {
-    const { exportToPDF } = await import('@/lib/exportPdf')
     setIsExporting(true)
-    await exportToPDF('strategy-export-node', `${brandInfo?.name || 'Brand'}_OS.pdf`)
-    setIsExporting(false)
+    try {
+      const { exportToPDF } = await import('@/lib/exportPdf')
+      await exportToPDF('strategy-export-node', `${brandInfo?.name || 'Brand'}_OS.pdf`)
+    } catch (err: any) {
+      console.error('Export failed:', err)
+      setError('PDF export failed. Please try again.')
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   const handleMediaUpload = async (files: FileList, field: 'brandReferences' | 'productImages' | 'brandLogos' | 'fontSpecimenImages') => {
@@ -323,6 +395,91 @@ export default function StrategyPage() {
     const existing = brandInfo[field] || []
     setBrandInfo({ ...brandInfo, [field]: existing.filter(a => a.id !== assetId) })
   }
+
+  const handleUnlockSocialStrategy = async () => {
+    if (!activeBrand || !brandInfo || !strategy) return
+    setIsGeneratingSocial(true)
+    setSocialError(null)
+
+    try {
+      // Strip base64 from brandInfo before sending
+      const lightBrandInfo = {
+        ...brandInfo,
+        brandReferences: brandInfo.brandReferences?.map(r => ({ ...r, url: '' })),
+        brandAssets: [],
+      }
+
+      const marketingContext = {
+        oneLineStrategy: strategy.oneLineStrategy,
+        targetAudience: strategy.targetAudience,
+        persona: strategy.persona,
+        coreNarratives: strategy.coreNarratives,
+        competitorAnalysis: strategy.competitorAnalysis,
+        psychographicTriggers: strategy.psychographicTriggers,
+        strategicPatterns: strategy.strategicPatterns,
+      }
+
+      const MAX_RETRIES = 2
+      let lastErr: string | null = null
+
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+          const delay = 3000 * Math.pow(2, attempt - 1) + Math.random() * 1000
+          await new Promise(r => setTimeout(r, delay))
+        }
+
+        let res: Response
+        try {
+          res = await fetch('/api/generate-social-strategy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ brandInfo: lightBrandInfo, marketingStrategy: marketingContext }),
+          })
+        } catch {
+          lastErr = 'Network error. Please check your connection.'
+          continue
+        }
+
+        if (res.status === 504 || res.status === 502 || res.status === 503) {
+          lastErr = attempt < MAX_RETRIES ? 'AI is taking longer than expected. Retrying...' : 'Timed out. Please try again.'
+          if (attempt < MAX_RETRIES) continue
+          break
+        }
+
+        if (!res.ok) {
+          let errorMsg = `Server error (${res.status}).`
+          try { errorMsg = (await res.json())?.error || errorMsg } catch {}
+          if (res.status === 500 && attempt < MAX_RETRIES) { lastErr = errorMsg; continue }
+          lastErr = errorMsg
+          break
+        }
+
+        let result: any
+        try { result = await parseStreamedResponse(res) } catch (e: any) {
+          lastErr = e?.message || 'Invalid response. Please try again.'
+          break
+        }
+
+        if (result.success && result.data) {
+          mergeSocialStrategy(result.data)
+          setSocialError(null)
+          return
+        } else {
+          lastErr = result.error || 'Failed to generate social strategy'
+          if (attempt < MAX_RETRIES && /unavailable|busy|timed out/i.test(lastErr || '')) continue
+          break
+        }
+      }
+
+      setSocialError(sanitizeErrorForUI(lastErr || 'Failed to generate social strategy'))
+    } catch (err: any) {
+      setSocialError(sanitizeErrorForUI(err?.message || 'An unexpected error occurred'))
+    } finally {
+      setIsGeneratingSocial(false)
+    }
+  }
+
+  const socialStrategyGenerated = activeBrand?.socialStrategyGenerated || false
 
   if (!mounted) return null
   if (!activeBrand || !brandInfo) {
@@ -595,6 +752,9 @@ export default function StrategyPage() {
          )}
        </div>
 
+      {/* ═══ Brand OS Evolution Engine ═══ */}
+      <BrandOSEvolution />
+
       <div className="grid grid-cols-1 gap-8 mt-8">
         {/* ═══ SECTION 3: Quick Pulse ═══ */}
         <div className="space-y-6">
@@ -609,12 +769,14 @@ export default function StrategyPage() {
               fieldKey="primaryGoals"
               isArray={true}
               onSave={(val) => {
+                const oldVal = brandInfo.primaryGoals?.join(', ') || ''
                 setBrandInfo({ ...brandInfo, primaryGoals: val.split(',').map((s: string) => s.trim()).filter(Boolean) })
+                signals.logProfileFieldChange('primaryGoals', `Goals changed from "${oldVal}" to "${val}"`)
               }}
             />
-            
+
             {/* Visual Vibe - Expandable */}
-            <TacticalCard 
+            <TacticalCard
               title="Visual Vibe"
               iconBg="bg-indigo-50"
               icon={<Palette className="w-4 h-4 text-indigo-500" />}
@@ -628,12 +790,14 @@ export default function StrategyPage() {
                 </div>
               }
               onSave={(val) => {
+                const oldVal = brandInfo.tone?.join(', ') || ''
                 setBrandInfo({ ...brandInfo, tone: val.split(',').map((s: string) => s.trim()).filter(Boolean) })
+                signals.logProfileFieldChange('tone', `Tone changed from "${oldVal}" to "${val}"`)
               }}
             />
 
             {/* Target Platforms - Expandable */}
-            <TacticalCard 
+            <TacticalCard
               title="Target Platforms"
               iconBg="bg-emerald-50"
               icon={<Globe className="w-4 h-4 text-emerald-500" />}
@@ -641,7 +805,9 @@ export default function StrategyPage() {
               fieldKey="platforms"
               isArray={true}
               onSave={(val) => {
+                const oldVal = brandInfo.platforms?.join(', ') || ''
                 setBrandInfo({ ...brandInfo, platforms: val.split(',').map((s: string) => s.trim()).filter(Boolean) })
+                signals.logProfileFieldChange('platforms', `Platforms changed from "${oldVal}" to "${val}"`)
               }}
             />
           </div>
@@ -658,14 +824,85 @@ export default function StrategyPage() {
           {strategy.competitorAnalysis && <StrategyCard title="Competitor Warfare" icon={Swords} iconColor="bg-rose-50 text-rose-500" content={strategy.competitorAnalysis} accentBorder="border-rose-200" />}
           {strategy.psychographicTriggers && <StrategyCard title="Psychographic Triggers" icon={Brain} iconColor="bg-indigo-50 text-indigo-500" content={strategy.psychographicTriggers} accentBorder="border-indigo-200" />}
           {strategy.strategyGrid && <StrategyCard title="Overall Strategy Mechanics" icon={Target} iconColor="bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]" content={strategy.strategyGrid} />}
-          {strategy.riskOpportunityMap && <StrategyCard title="Risk vs. Opportunity" icon={Shield} iconColor="bg-red-50 text-red-500" content={strategy.riskOpportunityMap} />}
+          {strategy.riskOpportunityMap && (() => {
+            const raw = Array.isArray(strategy.riskOpportunityMap) ? strategy.riskOpportunityMap.join('\n') : (strategy.riskOpportunityMap || '')
+            const points = raw
+              .split(/\n+/)
+              .flatMap(line => {
+                const t = line.trim().replace(/^[-•*]\s+/, '').replace(/^\d+[.)]\s+/, '')
+                if (!t) return []
+                return t.split(/(?<=[.!?])\s+(?=[A-Z])/).filter(s => s.length > 15)
+              })
+              .map(s => s.trim())
+              .filter(s => s.length > 15)
+            const risks = points.filter(p => /threat|risk|danger|weakness|challenge|compete|crowded|losing|behind|vulnerable|biggest|over-index/i.test(p))
+            const opps = points.filter(p => /opportunit|advantage|untapped|whitespace|gap|underserved|emerging|potential|leverage|own|wedge|strongest|discover/i.test(p))
+            const unmatched = points.filter(p => !risks.includes(p) && !opps.includes(p))
+            const riskList = [...risks, ...unmatched.slice(0, Math.ceil(unmatched.length / 2))]
+            const oppList = [...opps, ...unmatched.slice(Math.ceil(unmatched.length / 2))]
+            return (<>
+              {riskList.length > 0 && <StrategyCard title="Immediate Threats" icon={Shield} iconColor="bg-red-50 text-red-500" content={riskList.join('\n')} accentBorder="border-red-200" />}
+              {oppList.length > 0 && <StrategyCard title="Untapped Opportunities" icon={Zap} iconColor="bg-emerald-50 text-emerald-500" content={oppList.join('\n')} accentBorder="border-emerald-200" />}
+            </>)
+          })()}
         </div>
       </div>
 
-      {/* ═══ SECTION 5: Platform Ecosystem Playbooks ═══ */}
+      {/* ═══ SECTION 4.5: Competitor Intelligence (AGI Layer) ═══ */}
       <div className="mt-12 pt-8 border-t border-[var(--color-border-subtle)]">
-        <h2 className="text-xs font-black text-blue-500 uppercase tracking-widest mb-4">Phase 1: Platform Ecosystem Playbooks</h2>
-        
+        <CompetitorIntel />
+      </div>
+
+      {/* ═══ SECTION 5: Social Media Strategy (Phase 2 — Unlockable) ═══ */}
+      <div className="mt-12 pt-8 border-t border-[var(--color-border-subtle)]">
+
+        {!socialStrategyGenerated ? (
+          /* ── LOCKED STATE: Unlock Social Media Strategy ── */
+          <div className="relative overflow-hidden rounded-3xl border-2 border-dashed border-[var(--color-accent-500)]/40 bg-gradient-to-br from-[var(--color-accent-900)]/5 to-blue-900/5 p-10 text-center">
+            <div className="absolute top-0 right-0 w-72 h-72 bg-[var(--color-accent-500)]/5 blur-[100px] -mr-36 -mt-36 rounded-full" />
+            <div className="absolute bottom-0 left-0 w-56 h-56 bg-blue-500/5 blur-[80px] -ml-28 -mb-28 rounded-full" />
+
+            <div className="relative z-10 max-w-lg mx-auto">
+              <div className="w-16 h-16 bg-[var(--color-accent-600)]/20 rounded-2xl flex items-center justify-center mx-auto mb-5 border border-[var(--color-accent-500)]/30">
+                <Zap className="w-8 h-8 text-[var(--color-accent-400)]" />
+              </div>
+              <h2 className="text-2xl font-black text-[var(--color-text-primary)] mb-3">Unlock Social Media Strategy</h2>
+              <p className="text-sm text-[var(--color-text-secondary)] mb-2 leading-relaxed">
+                Your marketing strategy is ready. Now generate your platform-specific playbooks, content pillars, and Brand OS compilation.
+              </p>
+              <p className="text-xs text-[var(--color-text-muted)] mb-8">
+                This builds on your Phase 1 strategy to create platform playbooks, content pillars with posting cadence, and anti-pattern checklists tailored to each platform.
+              </p>
+
+              {socialError && (
+                <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 text-xs font-bold mb-5 flex items-center gap-2">
+                  <RefreshCw className="w-3.5 h-3.5" /> {socialError}
+                </div>
+              )}
+
+              <button
+                onClick={handleUnlockSocialStrategy}
+                disabled={isGeneratingSocial}
+                className="px-10 py-4 bg-[var(--color-accent-600)] hover:bg-[var(--color-accent-500)] text-white rounded-2xl font-black text-sm uppercase tracking-wider transition-all shadow-lg hover:shadow-xl disabled:opacity-50 flex items-center gap-3 mx-auto"
+              >
+                {isGeneratingSocial ? (
+                  <><RefreshCw className="w-5 h-5 animate-spin" /> Generating Social Strategy...</>
+                ) : (
+                  <><Sparkles className="w-5 h-5" /> Generate Social Media Strategy</>
+                )}
+              </button>
+
+              {isGeneratingSocial && (
+                <p className="text-xs text-[var(--color-text-muted)] mt-4 animate-pulse">
+                  Building platform playbooks and content pillars... This takes 30-60 seconds.
+                </p>
+              )}
+            </div>
+          </div>
+        ) : (
+        <>
+        <h2 className="text-xs font-black text-blue-500 uppercase tracking-widest mb-4">Social Media Playbooks</h2>
+
         {strategy.platformPlaybooks && Object.keys(strategy.platformPlaybooks).length > 0 ? (
            <div className="grid grid-cols-1 gap-6">
               {Object.entries(strategy.platformPlaybooks).map(([platform, playbook]) => (
@@ -761,10 +998,22 @@ export default function StrategyPage() {
                 {/* Playbook Summary */}
                 <div className="px-8 py-4 bg-[var(--color-bg-surface)] border-b border-[var(--color-border-subtle)]">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Role</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook?.role || '—'}</p></div>
-                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Mechanics</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook?.mechanics || '—'}</p></div>
-                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Tone</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook?.toneModifier || '—'}</p></div>
-                    <div><label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Cadence</label><p className="text-xs font-bold text-[var(--color-text-secondary)] mt-1 line-clamp-2">{playbook?.cadence || '—'}</p></div>
+                    {[
+                      { label: 'Role', value: playbook?.role },
+                      { label: 'Mechanics', value: playbook?.mechanics },
+                      { label: 'Tone', value: playbook?.toneModifier },
+                      { label: 'Cadence', value: playbook?.cadence },
+                    ].map(({ label, value }) => {
+                      const text = value || '—'
+                      const needsExpand = text.length > 80
+                      return (
+                        <div key={label} className="group/field">
+                          <label className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">{label}</label>
+                          <p className={`text-xs font-bold text-[var(--color-text-secondary)] mt-1 cursor-default transition-all ${needsExpand ? 'line-clamp-2 group-hover/field:line-clamp-none' : ''}`} title={text}>{text}</p>
+                          {needsExpand && <span className="text-[8px] text-[var(--color-accent-500)] opacity-0 group-hover/field:opacity-100 transition-opacity cursor-default">hover to expand</span>}
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
 
@@ -823,6 +1072,8 @@ export default function StrategyPage() {
             </div>
           )
         })()}
+      </>
+        )}
       </div>
 
       {/* ═══ SECTION 6: Brand Media Library ═══ */}

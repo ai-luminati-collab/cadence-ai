@@ -13,13 +13,17 @@ import { generatePostContent } from '@/actions/content'
 import { useRouter } from 'next/navigation'
 import { Toast, useToast } from '@/components/ui/Toast'
 import { PatternPrompt } from '@/components/ui/PatternPrompt'
+import { useBrandOSSignals } from '@/hooks/useBrandOSSignals'
 import { exportToPDF } from '@/lib/exportPdf'
 import { getContentSpec } from '@/lib/platform-specs'
-import { generateStaticVisual, generateCarouselVisuals, generateStoryVisual, type ImageModel } from '@/actions/imageGen'
+import { type ImageModel } from '@/actions/imageGen'
 import { classifyEdit, classifyCopilotInstruction, detectPattern, getPatternKey, type EditEvent, type DetectedPattern } from '@/lib/edit-pattern-detector'
 import { VisualReferences } from '@/components/ui/VisualReferences'
 import { findVisualReferences, researchReferences } from '@/actions/references'
 import type { VisualRef } from '@/stores/brand'
+import { sanitizeErrorForUI } from '@/lib/error-sanitizer'
+import { parseStreamedResponse } from '@/lib/streaming-fetch'
+import { PublishStatusBadge } from '@/components/ui/PublishStatusBadge'
 
 const PLATFORM_ICONS: Record<string, { icon: any, color: string }> = {
   "Meta (Instagram & Facebook)": { icon: Infinity, color: "text-blue-400" },
@@ -75,8 +79,9 @@ const PLATFORM_FORMATS: Record<string, { label: string; value: string }[]> = {
 export default function CalendarPage() {
   const router = useRouter()
   const { brands, activeBrandId, setCalendar, updateCalendarPost, saveDraft, saveDraftVariant, addPendingInsight, addAiKnowledge, addEditEvent, dismissPattern } = useBrandStore()
+  const signals = useBrandOSSignals() // Brand OS Evolution Engine
   const activeBrand = activeBrandId ? brands[activeBrandId] : null
-  
+
   const brandInfo = activeBrand?.brandInfo
   const strategy = activeBrand?.strategy
   const calendar = activeBrand?.calendar
@@ -242,6 +247,9 @@ export default function CalendarPage() {
 
     addEditEvent(event)
 
+    // 🧠 Brand OS Evolution: Log content edit signal to server
+    signals.logContentEdit(postId, platform, format, editType, originalText, editedText)
+
     // Check for patterns with the new event included
     const allEvents = [...editEvents, event]
     const pattern = detectPattern(allEvents as EditEvent[], platform)
@@ -274,6 +282,9 @@ export default function CalendarPage() {
     }
 
     addEditEvent(event)
+
+    // 🧠 Brand OS Evolution: Log copilot instruction signal to server
+    signals.logContentEdit(postId, platform, format, editType, '', instruction)
 
     const allEvents = [...editEvents, event]
     const pattern = detectPattern(allEvents as EditEvent[], platform)
@@ -488,10 +499,10 @@ export default function CalendarPage() {
          setTopicals(res.data.map(t => ({ ...t, selected: true, suggestedFormat: 'Static' })))
          setConfigStep('topicals')
       } else {
-         setError(res.error || "Failed to extract topicals")
+         setError(sanitizeErrorForUI(res.error || "Failed to extract topicals"))
       }
     } catch (e: any) {
-      setError("AI Request Failed.")
+      setError(sanitizeErrorForUI("AI Request Failed."))
     } finally {
       setIsExtractingTopicals(false)
     }
@@ -561,24 +572,37 @@ export default function CalendarPage() {
          })
        })
 
-       if (!calResponse.ok) {
-         const errBody = await calResponse.text().catch(() => 'Unknown server error')
-         throw new Error(`Server error (${calResponse.status}): ${errBody.slice(0, 200)}`)
+       // Handle gateway errors (Vercel killed the function)
+       if (calResponse.status === 504 || calResponse.status === 502 || calResponse.status === 503) {
+         throw new Error('Calendar generation timed out. The AI engine is under heavy load — please try again.')
        }
 
-       const res = await calResponse.json()
+       if (!calResponse.ok) {
+         let errMsg = `Server error (${calResponse.status}).`
+         try { errMsg = (await calResponse.json())?.error || errMsg } catch {}
+         throw new Error(sanitizeErrorForUI(errMsg))
+       }
+
+       // Parse streamed response (handles heartbeat whitespace + __JSON__ delimiter)
+       let res: any;
+       try {
+         res = await parseStreamedResponse(calResponse);
+       } catch (parseErr: any) {
+         console.error("Calendar response parse failed:", parseErr);
+         throw new Error(parseErr?.message || "Something went wrong. Please try again.");
+       }
 
        if (res.success && res.data) {
           setCalendar(res.data)
           setShowConfig(false)
           setConfigStep('setup')
        } else {
-          setError(res.error || "Generation malfunctioned")
+          setError(sanitizeErrorForUI(res.error || "Generation malfunctioned"))
           setConfigStep('topicals')
        }
     } catch (e: any) {
        console.error('Calendar generation error:', e)
-       setError(e?.message || 'Calendar generation failed. Check your API keys and try again.')
+       setError(sanitizeErrorForUI(e?.message || 'Calendar generation failed. Please try again.'))
        setConfigStep('topicals')
     } finally {
        setIsGeneratingCal(false)
@@ -606,11 +630,11 @@ export default function CalendarPage() {
             saveDraft(postId, res.data)
           }
        } else {
-           showToast('Failed to generate content: ' + res.error, 'error')
+           showToast('Content generation failed. ' + sanitizeErrorForUI(res.error || ''), 'error')
        }
     } catch (e: any) {
         console.error('Content generation error:', e)
-        showToast(e?.message || 'Content generation failed. Check API keys.', 'error')
+        showToast(sanitizeErrorForUI(e?.message || 'Content generation failed.'), 'error')
     } finally {
        setIsGeneratingContent(false)
     }
@@ -634,7 +658,7 @@ export default function CalendarPage() {
         saveDraft(activePost.id, res.data)
         setChatInput('')
       } else {
-        showToast('Chat update failed: ' + res.error, 'error')
+        showToast('Chat update failed. ' + sanitizeErrorForUI(res.error || ''), 'error')
       }
     } catch (e) {
       showToast('Failed to chat.', 'error')
@@ -668,7 +692,7 @@ export default function CalendarPage() {
            showToast('Brilliant edit! Added to AI Knowledge Base.', 'success')
         }
       } else {
-        showToast('Concept iteration failed: ' + res.error, 'error')
+        showToast('Concept iteration failed. ' + sanitizeErrorForUI(res.error || ''), 'error')
       }
     } catch (e) {
       showToast('Failed to iterate concept.', 'error')
@@ -688,57 +712,64 @@ export default function CalendarPage() {
        if (res.success && res.data) {
          updateCalendarPost(activePost.id, { topic: res.data })
        } else {
-         showToast('Reroll failed: ' + res.error, 'error')
+         showToast('Reroll failed. ' + sanitizeErrorForUI(res.error || ''), 'error')
        }
      } catch (e: any) {
         console.error('Reroll error:', e)
-        showToast('Reroll failed: ' + (e?.message || 'Unknown error'), 'error')
+        showToast(sanitizeErrorForUI(e?.message || 'Reroll failed.'), 'error')
      } finally {
         setIsRerolling(false)
      }
   }
 
-  // Image Generation Handler
+  // Image Generation Handler — uses API route to avoid RSC serialization crash on large base64
   const handleGenerateVisual = async () => {
     const activePost = selectedPostId ? calendar?.find(p => p.id === selectedPostId) : null
     const activeDraft = selectedPostId ? contentDrafts[selectedPostId] : null
     if (!activePost || !activeDraft || !brandInfo || !strategy) return
-    
+
     setIsGeneratingVisual(true)
-    setVisualGenProgress('Preparing visual brief...')
-    
+    setVisualGenProgress(activePost.format === 'Carousel' ? 'Generating carousel slides...' : activePost.format === 'Story' ? 'Generating story frame...' : 'Generating static visual...')
+
     try {
-      let result: { success: boolean; imageUrl?: string; imageUrls?: string[]; error?: string }
-      
-      if (activePost.format === 'Carousel') {
-        setVisualGenProgress('Generating carousel slides...')
-        result = await generateCarouselVisuals(activePost, activeDraft, brandInfo, strategy, 3, imageModel)
-        if (result.success && result.imageUrls) {
+      // Strip base64 image data from payload to stay under Vercel's 4.5MB limit
+      const stripBase64 = (assets?: any[]) => assets?.map(a => ({ ...a, url: a.url?.startsWith('data:') ? '' : a.url }))
+      const lightDraft = { ...activeDraft, postReferences: activeDraft.postReferences?.map(r => ({ ...r, url: r.url?.startsWith('data:') ? '' : r.url })) }
+
+      const res = await fetch('/api/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          post: activePost,
+          draft: lightDraft,
+          brandInfo: { name: brandInfo.name, industry: brandInfo.industry, primaryColorHex: brandInfo.primaryColorHex, secondaryColorHex: brandInfo.secondaryColorHex, headingFont: brandInfo.headingFont, bodyFont: brandInfo.bodyFont, visualGuardrails: brandInfo.visualGuardrails, coreProducts: brandInfo.coreProducts },
+          strategy: { persona: strategy.persona, targetAudience: strategy.targetAudience },
+          format: activePost.format,
+          model: imageModel,
+          slideCount: 3,
+        }),
+      })
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => 'Unknown server error')
+        throw new Error(`Server error (${res.status}): ${errText.slice(0, 200)}`)
+      }
+
+      const result = await res.json()
+
+      if (result.success) {
+        if (result.imageUrls) {
           saveDraft(activePost.id, { ...activeDraft, generatedVisuals: result.imageUrls })
           showToast(`${result.imageUrls.length} carousel slides generated`, 'success')
-        }
-      } else if (activePost.format === 'Story') {
-        setVisualGenProgress('Generating story frame...')
-        result = await generateStoryVisual(activePost, activeDraft, brandInfo, strategy, imageModel)
-        if (result.success && result.imageUrl) {
+        } else if (result.imageUrl) {
           saveDraft(activePost.id, { ...activeDraft, generatedVisuals: [result.imageUrl] })
-          showToast('Story visual generated', 'success')
+          showToast('Visual generated', 'success')
         }
       } else {
-        // Static (default)
-        setVisualGenProgress('Generating static visual...')
-        result = await generateStaticVisual(activePost, activeDraft, brandInfo, strategy, imageModel)
-        if (result.success && result.imageUrl) {
-          saveDraft(activePost.id, { ...activeDraft, generatedVisuals: [result.imageUrl] })
-          showToast('Static visual generated', 'success')
-        }
-      }
-      
-      if (!result.success) {
-        showToast('Visual generation failed: ' + result.error, 'error')
+        showToast('Visual generation failed. ' + sanitizeErrorForUI(result.error || ''), 'error')
       }
     } catch (e: any) {
-      showToast('Image generation failed: ' + e.message, 'error')
+      showToast(sanitizeErrorForUI(e?.message || 'Image generation failed.'), 'error')
     } finally {
       setIsGeneratingVisual(false)
       setVisualGenProgress('')
@@ -755,6 +786,21 @@ export default function CalendarPage() {
          <h2 className="text-3xl font-display font-bold text-[var(--color-text-primary)] mb-3">Workspace Required</h2>
          <p className="text-[var(--color-text-secondary)] mb-8 max-w-md">The Content Intelligence Engine requires an active brand session. Exit to Dashboard to select your focus.</p>
          <button onClick={() => router.push('/dashboard')} className="bg-[var(--color-accent-600)] hover:bg-[var(--color-accent-500)] text-white px-8 py-3 rounded-full font-bold transition-all transform hover:-translate-y-0.5 shadow-[0_0_20px_var(--color-accent-glow)] uppercase tracking-tight text-xs">Return to Dashboard</button>
+       </div>
+    )
+  }
+
+  if (!activeBrand.socialStrategyGenerated) {
+    return (
+       <div className="flex flex-col items-center justify-center h-[calc(100vh-8rem)] text-center animate-in fade-in duration-500">
+         <div className="w-20 h-20 rounded-full bg-amber-500/10 flex items-center justify-center mb-6 border border-amber-500/30">
+            <CalendarIcon className="w-10 h-10 text-amber-400" />
+         </div>
+         <h2 className="text-3xl font-display font-bold text-[var(--color-text-primary)] mb-3">Social Strategy Required</h2>
+         <p className="text-[var(--color-text-secondary)] mb-8 max-w-md">You need to generate your Social Media Strategy before building a content calendar. Head to Brand OS and unlock it.</p>
+         <button onClick={() => router.push('/strategy')} className="bg-[var(--color-accent-600)] hover:bg-[var(--color-accent-500)] text-white px-8 py-3 rounded-full font-bold transition-all transform hover:-translate-y-0.5 shadow-[0_0_20px_var(--color-accent-glow)] uppercase tracking-tight text-xs flex items-center gap-2">
+           Go to Brand OS
+         </button>
        </div>
     )
   }
@@ -1446,7 +1492,11 @@ export default function CalendarPage() {
                                           {post.platform.replace(' (Instagram & Facebook)', '')}
                                        </span>
                                     </div>
-                                    {hasDraft && <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)] shadow-[0_0_8px_var(--color-success)]" />}
+                                    {post.publishStatus === 'published' || post.publishStatus === 'tracking' ? (
+                                       <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" title="Published" />
+                                    ) : hasDraft ? (
+                                       <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)] shadow-[0_0_8px_var(--color-success)]" />
+                                    ) : null}
                                 </div>
                                <div className="mt-1">
                                  {post.bucketName && (
@@ -1454,7 +1504,7 @@ export default function CalendarPage() {
                                      {post.bucketName}
                                    </div>
                                  )}
-                                 <p className={`text-[11px] font-bold leading-snug line-clamp-2 ${hasDraft ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-primary)]'}`}>
+                                 <p className={`text-[11px] font-bold leading-snug line-clamp-2 ${hasDraft ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-primary)]'}`} title={post.topic}>
                                     {post.topic}
                                  </p>
                                </div>
@@ -1512,7 +1562,7 @@ export default function CalendarPage() {
                                     <span className="px-3 py-1 rounded-full bg-[var(--color-bg-input)] text-[var(--color-text-primary)] text-[10px] font-bold border border-[var(--color-border-default)]">{post.pillar}</span>
                                  </td>
                                  <td className="py-4 px-6 w-1/3">
-                                    <p className="text-sm font-medium text-[var(--color-text-primary)] line-clamp-2">{post.topic}</p>
+                                    <p className="text-sm font-medium text-[var(--color-text-primary)] line-clamp-2" title={post.topic}>{post.topic}</p>
                                  </td>
                                  <td className="py-4 px-6 text-right whitespace-nowrap">
                                     {hasDraft ? (
@@ -1577,9 +1627,13 @@ export default function CalendarPage() {
                         <span className="text-[11px] font-black text-[var(--color-text-tertiary)] uppercase tracking-widest">{activePost.format}</span>
                      </div>
                   </div>
-                  <button onClick={() => setSelectedPostId(null)} className="p-4 rounded-2xl bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:bg-[var(--color-error)] hover:text-white transition-all shadow-sm border border-[var(--color-border-default)] group">
-                     <X className="w-7 h-7 group-hover:rotate-90 transition-transform duration-300"/>
-                  </button>
+                  <div className="flex items-center gap-3">
+                     {/* Mark as Published / Performance */}
+                     <PublishStatusBadge post={activePost} />
+                     <button onClick={() => setSelectedPostId(null)} className="p-4 rounded-2xl bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:bg-[var(--color-error)] hover:text-white transition-all shadow-sm border border-[var(--color-border-default)] group">
+                        <X className="w-7 h-7 group-hover:rotate-90 transition-transform duration-300"/>
+                     </button>
+                  </div>
                </div>
                <div className="flex-1 overflow-y-auto p-12 space-y-12 custom-scrollbar bg-gradient-to-b from-transparent to-[var(--color-bg-surface)]/20">
                
