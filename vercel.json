@@ -1,5 +1,4 @@
 {
-  "maxDuration": 300,
   "crons": [
     {
       "path": "/api/cron/algo-scout",
