@@ -1,4 +1,31 @@
 'use server'
+
+// Server-side error message sanitizer for action return values
+function sanitizeActionError(msg: any): string {
+  if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
+  const patterns = [
+    [/credit balance is too low/i, 'AI service temporarily unavailable.'],
+    [/insufficient.?funds/i, 'AI service temporarily unavailable.'],
+    [/billing/i, 'AI service temporarily unavailable.'],
+    [/rate.?limit|too many requests|overloaded/i, 'AI engine is busy. Please try again.'],
+    [/invalid.?api.?key|authentication|permission/i, 'AI service configuration error.'],
+    [/context.?length|too.?long|token.?limit/i, 'Content too large for AI processing.'],
+    [/timeout|timed.?out|ETIMEDOUT/i, 'Request timed out. Please try again.'],
+    [/ECONNREFUSED|ENOTFOUND|network/i, 'Network error. Please try again.'],
+    [/not valid JSON|Unexpected token/i, 'AI returned unexpected response. Please try again.'],
+    [/sk-[a-zA-Z0-9]/i, 'An unexpected error occurred.'],
+  ];
+  for (const [pat, safe] of (patterns as [RegExp, string][])) {
+    if (pat.test(msg)) return safe;
+  }
+  if (msg.startsWith('{') || msg.startsWith('4') || msg.startsWith('5') || msg.length > 200) {
+    return 'An unexpected error occurred.';
+  }
+  return msg;
+}
+
+import { safeParseJSON, requireParseJSON, withRetry } from '@/lib/ai-resilience'
+
 import { askExpertAgent } from '@/lib/openai-agent'
 import { ProductEntry, ServiceEntry } from '@/stores/brand'
 
@@ -25,7 +52,7 @@ export async function extractFromUrl(url: string): Promise<{
 
     return await extractFromText(scrapedContent, url)
   } catch (error: any) {
-    return { success: false, error: error.message || "URL extraction failed." }
+    return { success: false, error: sanitizeActionError(error.message) || "URL extraction failed." }
   }
 }
 
@@ -83,7 +110,7 @@ export async function extractFromText(rawText: string, sourceLabel: string = 'ma
   data?: { products?: ProductEntry[], services?: ServiceEntry[], rawSummary: string }
   error?: string
 }> {
-  const prompt = `You are a product intelligence analyst. Extract ONLY concrete, sellable line-items from this content.
+  const prompt = `You are a world-class product intelligence analyst. Your job is to determine exactly WHAT this brand sells or offers, based on the provided content.
 
 SOURCE: ${sourceLabel}
 
@@ -91,16 +118,16 @@ CONTENT:
 ${rawText.slice(0, 8000)}
 
 TASK:
-1. Identify every distinct PURCHASABLE product or service (real SKUs, menu items, packages, offerings with a clear name).
-2. SKIP all of the following:
-   - Section headers, category labels, navigation items ("Our Menu", "Services", "About Us", "Appetizers", "Main Course")
-   - Marketing taglines, slogans, "why choose us" bullets, testimonials
-   - Generic phrases ("Premium Quality", "Expert Team", "24/7 Support") unless they're an actual offering
-   - Descriptions of the brand itself, the company, or the page
-3. For each real item, extract: name, description, key features, price range (if mentioned), target segment.
-4. Classify each as a "product" (physical/digital good, menu item) or "service" (consulting, SaaS, agency work, etc.).
-5. If unsure whether something is a real offering vs. a header/tagline, SKIP it. Precision > recall.
-6. Write a 2-3 sentence "rawSummary" capturing the overall business model.
+1. Identify the core products, services, SaaS platforms, or offerings. 
+2. BE SMART: Not all brands are e-commerce stores. 
+   - If it's a SaaS company, the platform itself is the product (e.g., "PremAI Platform").
+   - If it's an agency, their core capabilities are the services (e.g., "Performance Marketing", "SEO Audits").
+   - If it's a single-product brand, extract that one flagship product.
+   - If it's a restaurant, extract the main signature items or categories.
+3. For each item, extract: name, description, key features, price range (if mentioned, otherwise "Contact Sales" or "Custom"), and the target segment.
+4. Classify each as a "product" (physical goods, SaaS platforms, digital products) or "service" (consulting, agency work, treatments).
+5. Do NOT skip the core offering just because it lacks a price tag or a "Buy Now" button. If the brand exists to provide it, extract it.
+6. Write a 2-3 sentence "rawSummary" capturing the overall business model (Who they are, what they sell, and to whom).
 
 Return STRICTLY as JSON (no markdown):
 {
@@ -125,14 +152,14 @@ Return STRICTLY as JSON (no markdown):
 }`
 
   try {
-    const res = await askExpertAgent(prompt, true, '') // Fast mode + skip KB — extraction doesn't need it
+    const res = await withRetry(() => askExpertAgent(prompt, true, '')) // Fast mode + skip KB — extraction doesn't need it
     if (!res.success || !res.data) throw new Error("Extraction model failed.")
     
     const cleaned = res.data.replace(/```json/g, '').replace(/```/g, '').trim()
-    const parsed = JSON.parse(cleaned)
+    const parsed = requireParseJSON(cleaned)
     
     return { success: true, data: parsed }
   } catch (error: any) {
-    return { success: false, error: error.message || "Product extraction failed." }
+    return { success: false, error: sanitizeActionError(error.message) || "Product extraction failed." }
   }
 }

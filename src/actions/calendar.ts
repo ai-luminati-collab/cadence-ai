@@ -1,4 +1,31 @@
 'use server'
+
+// Server-side error message sanitizer for action return values
+function sanitizeActionError(msg: any): string {
+  if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
+  const patterns = [
+    [/credit balance is too low/i, 'AI service temporarily unavailable.'],
+    [/insufficient.?funds/i, 'AI service temporarily unavailable.'],
+    [/billing/i, 'AI service temporarily unavailable.'],
+    [/rate.?limit|too many requests|overloaded/i, 'AI engine is busy. Please try again.'],
+    [/invalid.?api.?key|authentication|permission/i, 'AI service configuration error.'],
+    [/context.?length|too.?long|token.?limit/i, 'Content too large for AI processing.'],
+    [/timeout|timed.?out|ETIMEDOUT/i, 'Request timed out. Please try again.'],
+    [/ECONNREFUSED|ENOTFOUND|network/i, 'Network error. Please try again.'],
+    [/not valid JSON|Unexpected token/i, 'AI returned unexpected response. Please try again.'],
+    [/sk-[a-zA-Z0-9]/i, 'An unexpected error occurred.'],
+  ];
+  for (const [pat, safe] of (patterns as [RegExp, string][])) {
+    if (pat.test(msg)) return safe;
+  }
+  if (msg.startsWith('{') || msg.startsWith('4') || msg.startsWith('5') || msg.length > 200) {
+    return 'An unexpected error occurred.';
+  }
+  return msg;
+}
+
+import { safeParseJSON, requireParseJSON, withRetry } from '@/lib/ai-resilience'
+
 import { askExpertAgent, askExpertAgentPremium } from '@/lib/openai-agent'
 import { BrandInfo, Strategy, ContentBucket } from '@/stores/brand'
 import { TopicalEvent } from './topicals'
@@ -47,8 +74,16 @@ function generateDateSlots(
   const start = new Date(startDate + 'T00:00:00')
   const end = new Date(endDate + 'T00:00:00')
 
-  // If content matrix exists, use it to generate exact slots per month
-  if (contentMatrix && Object.keys(contentMatrix).length > 0) {
+  // Check if content matrix has any actual posts (not just empty month keys)
+  const matrixHasPosts = contentMatrix && Object.keys(contentMatrix).length > 0 &&
+    Object.values(contentMatrix).some(platformData =>
+      Object.values(platformData).some(formats =>
+        Object.values(formats).some(count => count > 0)
+      )
+    )
+
+  // If content matrix exists AND has real post counts, use it
+  if (matrixHasPosts && contentMatrix) {
     for (const [monthKey, platformData] of Object.entries(contentMatrix)) {
       const [y, m] = monthKey.split('-')
       const year = parseInt(y)
@@ -181,8 +216,11 @@ function generateDateSlots(
         })
       }
     }
-  } else {
-    // ── FALLBACK: No content matrix — generate a reasonable default ──
+  }
+
+  // ── FALLBACK: No valid content matrix — generate a reasonable default ──
+  if (slots.length === 0) {
+    console.log('📅 No matrix posts found — using fallback distribution')
     let targetCount = 18 // moderate
     if (frequency === 'aggressive') targetCount = 28
     if (frequency === 'light') targetCount = 10
@@ -324,7 +362,7 @@ export async function generateContentCalendar(
     return { success: true, data: allPosts }
   } catch (error: any) {
     console.error("AI Calendar Generation Failed:", error)
-    return { success: false, error: error.message || "Failed to generate Calendar" }
+    return { success: false, error: sanitizeActionError(error.message) || "Failed to generate Calendar" }
   }
 }
 
@@ -450,19 +488,44 @@ Return { "posts": [ ... ] } with EXACTLY ${slots.length} posts. Pure JSON only, 
 
   // Use GPT-mini (skipReview=true) for speed — each batch must finish in <15s
   // The date/platform/format precision is handled by code, AI only fills creative
-  const res = await askExpertAgent(prompt, true, brandOSContext ? '' : undefined)
-  if (!res.success) throw new Error("Batch generation failed")
+  const res = await withRetry(() => askExpertAgent(prompt, false, brandOSContext ? '' : undefined))
+  if (!res.success) throw new Error(`Batch generation failed: ${(res as any).error || 'unknown'}`)
 
   let resultText = (res.data || '').replace(/```json/g, '').replace(/```/g, '').trim()
 
-  // Try to parse; if truncated JSON, attempt repair
-  let posts: any[] = []
-  try {
-    const parsed = JSON.parse(resultText)
-    posts = Array.isArray(parsed?.posts) ? parsed.posts : Array.isArray(parsed) ? parsed : []
-  } catch (parseErr) {
-    console.warn('⚠️ JSON parse failed, attempting repair...')
-    posts = repairTruncatedJSON(resultText, slots)
+  if (!resultText || resultText.length < 10) {
+    console.warn(`⚠️ AI returned empty/tiny response (${resultText.length} chars). Generating placeholders.`)
+    return slots.map(slot => ({
+      id: slot.id,
+      date: slot.date,
+      platform: slot.platform,
+      format: slot.format,
+      pillar: 'General',
+      topic: `[AI Draft Pending] ${slot.platform} ${slot.format} post`,
+      eventContext: '',
+      psychTrigger: '',
+      usageStory: ''
+    }))
+  }
+
+  // Try to parse; safeParseJSON automatically handles truncated array repair
+  const parsed = safeParseJSON(resultText)
+  let posts: any[] = Array.isArray(parsed?.posts) ? parsed.posts : Array.isArray(parsed) ? parsed : []
+
+  // If AI returned fewer posts than slots, pad with placeholders
+  if (posts.length === 0) {
+    console.warn('⚠️ AI returned 0 parseable posts. Using placeholders for all slots.')
+    return slots.map(slot => ({
+      id: slot.id,
+      date: slot.date,
+      platform: slot.platform,
+      format: slot.format,
+      pillar: 'General',
+      topic: `[AI Draft Pending] ${slot.platform} ${slot.format} post — concept to be filled`,
+      eventContext: '',
+      psychTrigger: '',
+      usageStory: ''
+    }))
   }
 
   // Enforce slot data onto posts (AI can't change dates/platforms/formats)
@@ -479,48 +542,3 @@ Return { "posts": [ ... ] } with EXACTLY ${slots.length} posts. Pure JSON only, 
   })
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// JSON REPAIR — Recovers posts from truncated AI output
-// ═══════════════════════════════════════════════════════════════════
-
-function repairTruncatedJSON(raw: string, slots: PreScheduledSlot[]): any[] {
-  console.log(`🔧 Attempting to repair truncated JSON (${raw.length} chars)`)
-
-  // Strategy: find all complete JSON objects in the array
-  const posts: any[] = []
-
-  // Find the posts array start
-  const arrayStart = raw.indexOf('[')
-  if (arrayStart === -1) return []
-
-  let depth = 0
-  let objStart = -1
-
-  for (let i = arrayStart; i < raw.length; i++) {
-    const ch = raw[i]
-
-    if (ch === '{' && depth === 1) {
-      // Start of a post object (depth 1 = inside the array)
-      objStart = i
-    }
-
-    if (ch === '{') depth++
-    if (ch === '}') {
-      depth--
-      if (depth === 1 && objStart !== -1) {
-        // End of a post object
-        const objStr = raw.substring(objStart, i + 1)
-        try {
-          const obj = JSON.parse(objStr)
-          posts.push(obj)
-        } catch {
-          // Skip malformed object
-        }
-        objStart = -1
-      }
-    }
-  }
-
-  console.log(`🔧 Recovered ${posts.length}/${slots.length} posts from truncated JSON`)
-  return posts
-}

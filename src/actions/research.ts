@@ -1,7 +1,35 @@
 'use server'
 
-import { askExpertAgent } from '@/lib/openai-agent'
+// Server-side error message sanitizer for action return values
+function sanitizeActionError(msg: any): string {
+  if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
+  const patterns = [
+    [/credit balance is too low/i, 'AI service temporarily unavailable.'],
+    [/insufficient.?funds/i, 'AI service temporarily unavailable.'],
+    [/billing/i, 'AI service temporarily unavailable.'],
+    [/rate.?limit|too many requests|overloaded/i, 'AI engine is busy. Please try again.'],
+    [/invalid.?api.?key|authentication|permission/i, 'AI service configuration error.'],
+    [/context.?length|too.?long|token.?limit/i, 'Content too large for AI processing.'],
+    [/timeout|timed.?out|ETIMEDOUT/i, 'Request timed out. Please try again.'],
+    [/ECONNREFUSED|ENOTFOUND|network/i, 'Network error. Please try again.'],
+    [/not valid JSON|Unexpected token/i, 'AI returned unexpected response. Please try again.'],
+    [/sk-[a-zA-Z0-9]/i, 'An unexpected error occurred.'],
+  ];
+  for (const [pat, safe] of (patterns as [RegExp, string][])) {
+    if (pat.test(msg)) return safe;
+  }
+  if (msg.startsWith('{') || msg.startsWith('4') || msg.startsWith('5') || msg.length > 200) {
+    return 'An unexpected error occurred.';
+  }
+  return msg;
+}
+
+import { safeParseJSON, requireParseJSON, withRetry } from '@/lib/ai-resilience'
+
+
+import { askExpertAgent, askExpertAgentPremium } from '@/lib/openai-agent'
 import { extractWebsiteContent } from '@/lib/jina'
+import { extractWebsiteContentWithApify } from '@/lib/apify-scraper'
 import { startDeepResearch, checkDeepResearchStatus } from '@/lib/deep-research'
 
 export interface ToneSample {
@@ -11,6 +39,8 @@ export interface ToneSample {
 }
 
 export interface BrandResearch {
+  brandName?: string
+  industry?: string
   summary: string
   discoveredAudiences: string[]
   audienceInsight: string
@@ -22,7 +52,10 @@ export interface BrandResearch {
   psychographicTriggers: string
   industryContext: string
   toneSamples: ToneSample[]
-  coreProducts?: string[] // Exact product/menu/service names discovered from research
+  coreProducts?: string[]
+  communicationStyle?: string
+  contentFrequency?: string
+  visualDirective?: string
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -33,17 +66,21 @@ export interface BrandResearch {
 
 /** Step 1: Start a deep research job. Returns an interaction ID to poll. */
 export async function startBrandDeepResearch(
-  name: string,
-  industry: string,
+  name?: string,
+  industry?: string,
   website?: string,
   brandDescription?: string
 ): Promise<{ success: boolean; interactionId?: string; error?: string }> {
   
-  const query = `You are an elite brand intelligence analyst. Conduct an exhaustive deep research on the brand "${name}".
+  if (!name && !website) {
+    return { success: false, error: 'Must provide either a brand name or a website URL.' };
+  }
+
+  const query = `You are an elite brand intelligence analyst. Conduct an exhaustive deep research on this brand.
 
 BRAND CONTEXT:
-- Brand Name: ${name}
-- Industry: ${industry || 'Unknown — determine from research'}
+${name ? `- Brand Name: ${name}` : '- Brand Name: Determine from website'}
+${industry ? `- Industry: ${industry}` : '- Industry: Determine from research/website'}
 - Website: ${website || 'Not provided'}
 ${brandDescription ? `- Description from founder: ${brandDescription}` : ''}
 
@@ -99,6 +136,8 @@ CRITICAL: For the coreProducts array, extract the EXACT product names, menu item
 
 Return STRICTLY as JSON (no markdown wrappers):
 {
+  "brandName": "The exact official name of the brand found in the research.",
+  "industry": "The specific industry/category of the brand (e.g. 'D2C Skincare', 'B2B SaaS').",
   "summary": "A 3-5 sentence executive summary synthesizing the brand's position, market context, and opportunity. Be specific with numbers and facts from the research.",
   "discoveredAudiences": ["Specific audience 1 with detail", "Specific audience 2", "Specific audience 3"],
   "audienceInsight": "A 80-120 word deep analysis of who their ideal customer is — use REAL psychographic data from the research. Demographics, behaviors, pain points, aspirations.",
@@ -110,6 +149,9 @@ Return STRICTLY as JSON (no markdown wrappers):
   "psychographicTriggers": "A 60-100 word analysis of the psychological triggers that drive their audience — based on actual customer behavior/sentiment from the research.",
   "industryContext": "A 60-100 word snapshot of current industry trends with specific data points from the research.",
   "coreProducts": ["Exact Product/Menu Item 1", "Exact Product 2", "Exact Product 3"],
+  "communicationStyle": "A short phrase describing how they should communicate (e.g. 'Short & Punchy', 'Highly Data-Driven', 'Visual & Aesthetic-First').",
+  "contentFrequency": "A suggested posting frequency based on the platform norms (e.g. 'Daily', '5x per week', '3x per week').",
+  "visualDirective": "A 2-3 sentence strict visual art direction based on their industry and audience (e.g. 'Premium, high-contrast photography with warm amber tones').",
   "toneSamples": [
     { "tone": "Playful", "caption": "A hyper-specific caption using real brand details.", "description": "Light, witty, and approachable." },
     { "tone": "Serious", "caption": "A caption grounded in real brand facts.", "description": "Professional, authoritative." },
@@ -125,19 +167,36 @@ Return STRICTLY as JSON (no markdown wrappers):
 Make EVERY field specific to "${brandName}" — reference their actual products, competitors, and market position. NOT generic marketing copy.`
 
   try {
-    const res = await askExpertAgent(prompt, false, '')
+    // Use Claude Opus Premium for synthesis — this is the "AI Brain Boss"
+    // Critical brand intelligence must NOT go through GPT-mini. Opus produces
+    // hyper-specific, grounded insights instead of generic marketing fluff.
+    let res: { success: boolean; data: string }
+
+    if (process.env.ANTHROPIC_API_KEY) {
+      try {
+        console.log('🧠 Synthesizing via Claude Opus (Premium Brain Boss)...')
+        res = await withRetry(() => askExpertAgentPremium(prompt, ''))
+      } catch (claudeErr: any) {
+        console.warn('⚠️ Claude synthesis failed, falling back to GPT:', claudeErr?.message?.substring(0, 100))
+        res = await withRetry(() => askExpertAgent(prompt, false, ''))
+      }
+    } else {
+      console.warn('⚠️ ANTHROPIC_API_KEY not set — falling back to GPT pipeline for synthesis')
+      res = await withRetry(() => askExpertAgent(prompt, false, ''))
+    }
+
     if (!res.success) throw new Error("Synthesis failed")
-    
+
     let resultText = res.data.replace(/```json/ig, '').replace(/```/g, '').trim()
     const firstBrace = resultText.indexOf('{');
     const lastBrace = resultText.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace !== -1) {
       resultText = resultText.substring(firstBrace, lastBrace + 1);
     }
-    return { success: true, data: JSON.parse(resultText) }
+    return { success: true, data: requireParseJSON(resultText) }
   } catch (error: any) {
     console.error("Research synthesis failed:", error)
-    return { success: false, error: error.message || "Failed to synthesize research" }
+    return { success: false, error: sanitizeActionError(error.message) || "Failed to synthesize research" }
   }
 }
 
@@ -155,9 +214,17 @@ export async function researchBrand(
   
   let scrapedWebsiteContext = ''
   if (website) {
-    const scrapedText = await extractWebsiteContent(website)
+    // Try Jina first (fast, free), then Apify fallback (bypasses Cloudflare/bot protection)
+    let scrapedText = await extractWebsiteContent(website)
+
+    if (!scrapedText || scrapedText.length < 200) {
+      console.log('⚠️ Jina scrape failed or returned too little content — trying Apify fallback...')
+      const apifyText = await extractWebsiteContentWithApify(website)
+      if (apifyText) scrapedText = apifyText
+    }
+
     if (scrapedText) {
-      const truncated = scrapedText.substring(0, 15000) 
+      const truncated = scrapedText.substring(0, 15000)
       scrapedWebsiteContext = `
 --- LIVE WEBSITE DATA START ---
 We have scraped their live website. Here is the raw Markdown content of their homepage:
@@ -188,6 +255,8 @@ CRITICAL: For the coreProducts array, extract the EXACT product names, menu item
 
 Return STRICTLY as JSON (no markdown wrappers):
 {
+  "brandName": "The exact official name of the brand found in the research.",
+  "industry": "The specific industry/category of the brand.",
   "summary": "A 2-3 sentence executive summary of what this brand is and its market position.",
   "discoveredAudiences": ["Audience segment 1", "Audience segment 2", "Audience segment 3"],
   "audienceInsight": "A 50-80 word deep analysis of who their ideal customer likely is — demographics, psychographics, behaviors, pain points.",
@@ -199,6 +268,9 @@ Return STRICTLY as JSON (no markdown wrappers):
   "psychographicTriggers": "A 40-60 word analysis of the psychological triggers (status, FOMO, belonging, aspiration, etc.) that would resonate with their audience.",
   "industryContext": "A 30-50 word snapshot of current trends and opportunities in their specific industry.",
   "coreProducts": ["Exact real product/menu item 1", "Product 2", "Product 3"],
+  "communicationStyle": "A short phrase describing how they should communicate.",
+  "contentFrequency": "A suggested posting frequency (e.g. '5x per week').",
+  "visualDirective": "A 2-3 sentence visual art direction based on their industry and audience.",
   "toneSamples": [
     { "tone": "Playful", "caption": "A 1-2 sentence social media caption in a playful, fun tone for this brand.", "description": "Light, witty, and approachable. Uses humor and personality." },
     { "tone": "Serious", "caption": "A 1-2 sentence social media caption in a serious, authoritative tone.", "description": "Professional, no-nonsense. Builds trust through gravitas." },
@@ -215,18 +287,32 @@ Make EVERY caption specific to "${name}" — use the brand name, reference the p
 Be specific, not generic. Output must be 100% valid JSON.`
 
   try {
-    const res = await askExpertAgent(prompt, true, '') // skipReview + skip KB
+    let res: { success: boolean; data: string }
+
+    if (process.env.ANTHROPIC_API_KEY) {
+      try {
+        console.log('🧠 Quick Research via Claude Opus (Premium)...')
+        res = await withRetry(() => askExpertAgentPremium(prompt, ''))
+      } catch (claudeErr: any) {
+        console.warn('⚠️ Claude failed, falling back to GPT pipeline:', claudeErr?.message?.substring(0, 100))
+        res = await withRetry(() => askExpertAgent(prompt, false, ''))
+      }
+    } else {
+      console.warn('⚠️ No ANTHROPIC_API_KEY — falling back to GPT pipeline')
+      res = await withRetry(() => askExpertAgent(prompt, false, ''))
+    }
+
     if (!res.success) throw new Error("Research agent failed.")
-    
+
     let resultText = res.data.replace(/```json/ig, '').replace(/```/g, '').trim()
     const firstBrace = resultText.indexOf('{');
     const lastBrace = resultText.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace !== -1) {
       resultText = resultText.substring(firstBrace, lastBrace + 1);
     }
-    return { success: true, data: JSON.parse(resultText) }
+    return { success: true, data: requireParseJSON(resultText) }
   } catch (error: any) {
     console.error("Brand Research Failed:", error)
-    return { success: false, error: error.message || "Failed to research brand" }
+    return { success: false, error: sanitizeActionError(error.message) || "Failed to research brand" }
   }
 }

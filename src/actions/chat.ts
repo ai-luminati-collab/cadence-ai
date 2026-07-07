@@ -1,4 +1,31 @@
 'use server'
+
+// Server-side error message sanitizer for action return values
+function sanitizeActionError(msg: any): string {
+  if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
+  const patterns = [
+    [/credit balance is too low/i, 'AI service temporarily unavailable.'],
+    [/insufficient.?funds/i, 'AI service temporarily unavailable.'],
+    [/billing/i, 'AI service temporarily unavailable.'],
+    [/rate.?limit|too many requests|overloaded/i, 'AI engine is busy. Please try again.'],
+    [/invalid.?api.?key|authentication|permission/i, 'AI service configuration error.'],
+    [/context.?length|too.?long|token.?limit/i, 'Content too large for AI processing.'],
+    [/timeout|timed.?out|ETIMEDOUT/i, 'Request timed out. Please try again.'],
+    [/ECONNREFUSED|ENOTFOUND|network/i, 'Network error. Please try again.'],
+    [/not valid JSON|Unexpected token/i, 'AI returned unexpected response. Please try again.'],
+    [/sk-[a-zA-Z0-9]/i, 'An unexpected error occurred.'],
+  ];
+  for (const [pat, safe] of (patterns as [RegExp, string][])) {
+    if (pat.test(msg)) return safe;
+  }
+  if (msg.startsWith('{') || msg.startsWith('4') || msg.startsWith('5') || msg.length > 200) {
+    return 'An unexpected error occurred.';
+  }
+  return msg;
+}
+
+import { safeParseJSON, requireParseJSON, withRetry } from '@/lib/ai-resilience'
+
 import { askExpertAgentPremium } from '@/lib/openai-agent'
 import { ContentDraft } from '@/stores/brand'
 
@@ -49,14 +76,14 @@ Output your response EXACTLY as a JSON object matching this structure (no markdo
 `
 
   try {
-    const res = await askExpertAgentPremium(prompt, '')
+    const res = await withRetry(() => askExpertAgentPremium(prompt, '')) // Claude-only: Copy Copilot was failing on GPT worker
     if (!res.success) throw new Error("Agent failed execution.")
 
     let resultText = res.data.replace(/```json/g, '').replace(/```/g, '').trim()
-    const data = JSON.parse(resultText) as ContentDraft
+    const data = requireParseJSON(resultText) as ContentDraft
     return { success: true, data }
   } catch (error: any) {
     console.error("AI Chat Generation Failed:", error)
-    return { success: false, error: error.message || "Failed to update draft via Chat" }
+    return { success: false, error: sanitizeActionError(error.message) || "Failed to update draft via Chat" }
   }
 }

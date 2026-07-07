@@ -1,4 +1,31 @@
 'use server'
+
+// Server-side error message sanitizer for action return values
+function sanitizeActionError(msg: any): string {
+  if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
+  const patterns = [
+    [/credit balance is too low/i, 'AI service temporarily unavailable.'],
+    [/insufficient.?funds/i, 'AI service temporarily unavailable.'],
+    [/billing/i, 'AI service temporarily unavailable.'],
+    [/rate.?limit|too many requests|overloaded/i, 'AI engine is busy. Please try again.'],
+    [/invalid.?api.?key|authentication|permission/i, 'AI service configuration error.'],
+    [/context.?length|too.?long|token.?limit/i, 'Content too large for AI processing.'],
+    [/timeout|timed.?out|ETIMEDOUT/i, 'Request timed out. Please try again.'],
+    [/ECONNREFUSED|ENOTFOUND|network/i, 'Network error. Please try again.'],
+    [/not valid JSON|Unexpected token/i, 'AI returned unexpected response. Please try again.'],
+    [/sk-[a-zA-Z0-9]/i, 'An unexpected error occurred.'],
+  ];
+  for (const [pat, safe] of (patterns as [RegExp, string][])) {
+    if (pat.test(msg)) return safe;
+  }
+  if (msg.startsWith('{') || msg.startsWith('4') || msg.startsWith('5') || msg.length > 200) {
+    return 'An unexpected error occurred.';
+  }
+  return msg;
+}
+
+import { safeParseJSON, requireParseJSON, withRetry } from '@/lib/ai-resilience'
+
 import { askExpertAgent } from '@/lib/openai-agent'
 import { BrandInfo, Strategy, PredictedMetrics } from '@/stores/brand'
 
@@ -38,15 +65,15 @@ export async function generatePredictedPerformance(brandInfo: BrandInfo, strateg
    `;
 
    try {
-      const res = await askExpertAgent(prompt, true, ''); // skipReview + skip KB
+      const res = await withRetry(() => askExpertAgent(prompt, true, '')); // skipReview + skip KB
       if (!res.success) throw new Error("Agent failed forecasting.");
 
       let resultText = (res.data || '').replace(/```json/g, '').replace(/```/g, '').trim();
       if (!resultText) throw new Error("Agent returned empty forecast");
-      const parsed = JSON.parse(resultText);
+      const parsed = requireParseJSON(resultText);
       return { success: true, data: parsed };
    } catch (error: any) {
       console.error("Analytics Forecast Failed:", error);
-      return { success: false, error: error.message || "Failed to generate forecast" };
+      return { success: false, error: sanitizeActionError(error.message) || "Failed to generate forecast" };
    }
 }

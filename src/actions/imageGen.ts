@@ -1,10 +1,36 @@
 'use server'
+
+// Server-side error message sanitizer for action return values
+function sanitizeActionError(msg: any): string {
+  if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
+  const patterns = [
+    [/credit balance is too low/i, 'AI service temporarily unavailable.'],
+    [/insufficient.?funds/i, 'AI service temporarily unavailable.'],
+    [/billing/i, 'AI service temporarily unavailable.'],
+    [/rate.?limit|too many requests|overloaded/i, 'AI engine is busy. Please try again.'],
+    [/invalid.?api.?key|authentication|permission/i, 'AI service configuration error.'],
+    [/context.?length|too.?long|token.?limit/i, 'Content too large for AI processing.'],
+    [/timeout|timed.?out|ETIMEDOUT/i, 'Request timed out. Please try again.'],
+    [/ECONNREFUSED|ENOTFOUND|network/i, 'Network error. Please try again.'],
+    [/not valid JSON|Unexpected token/i, 'AI returned unexpected response. Please try again.'],
+    [/sk-[a-zA-Z0-9]/i, 'An unexpected error occurred.'],
+  ];
+  for (const [pat, safe] of (patterns as [RegExp, string][])) {
+    if (pat.test(msg)) return safe;
+  }
+  if (msg.startsWith('{') || msg.startsWith('4') || msg.startsWith('5') || msg.length > 200) {
+    return 'An unexpected error occurred.';
+  }
+  return msg;
+}
+
+
 import { GoogleGenAI } from '@google/genai'
 import OpenAI from 'openai'
-import { CalendarPost, ContentDraft, BrandInfo, Strategy, BrandAsset, PostReference, FeedAesthetic, VisualGuardrail } from '@/stores/brand'
+import { CalendarPost, ContentDraft, BrandInfo, Strategy, BrandAsset, PostReference, FeedAesthetic, VisualGuardrail, VisualRef } from '@/stores/brand'
 
-const googleAI = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY })
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+const getGoogleAI = () => new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY })
+const getOpenAI = () => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 // Available image generation models
 export type ImageModel = 
@@ -62,7 +88,7 @@ async function generateViaGoogle(prompt: string, modelId: string, referenceImage
     }
   }
 
-  const response = await googleAI.models.generateContent({
+  const response = await getGoogleAI().models.generateContent({
     model: modelId,
     contents: parts.length > 1 ? [{ role: 'user', parts }] : prompt,
   })
@@ -89,7 +115,7 @@ async function generateViaGoogle(prompt: string, modelId: string, referenceImage
  * Generate via OpenAI GPT Image.
  */
 async function generateViaOpenAI(prompt: string, modelId: string): Promise<string> {
-  const response = await openai.images.generate({
+  const response = await getOpenAI().images.generate({
     model: modelId,
     prompt,
     n: 1,
@@ -105,16 +131,42 @@ async function generateViaOpenAI(prompt: string, modelId: string): Promise<strin
 }
 
 // ──────────────────────────────────────
+// Fetch URL → base64 (for visual refs)
+// ──────────────────────────────────────
+
+async function fetchImageAsBase64(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+    if (!res.ok) return null
+    const contentType = res.headers.get('content-type') || 'image/jpeg'
+    if (!contentType.startsWith('image/')) return null
+    const buffer = await res.arrayBuffer()
+    const b64 = Buffer.from(buffer).toString('base64')
+    return `data:${contentType};base64,${b64}`
+  } catch {
+    console.warn(`⚠️ Could not fetch visual reference: ${url}`)
+    return null
+  }
+}
+
+// ──────────────────────────────────────
 // Reference Image Collector
 // ──────────────────────────────────────
 
-function collectReferenceImages(
+async function collectReferenceImages(
   brandInfo: BrandInfo,
   tenureRefs?: BrandAsset[],
-  postRefs?: PostReference[]
-): string[] {
+  postRefs?: PostReference[],
+  approvedVisualRef?: string | null, // URL of the approved Pinterest/Instagram moodboard
+): Promise<string[]> {
   const refs: string[] = []
-  
+
+  // Priority 0: Approved visual reference from AI search (most specific — user explicitly approved this)
+  if (approvedVisualRef) {
+    const b64 = await fetchImageAsBase64(approvedVisualRef)
+    if (b64) refs.push(b64)
+  }
+
   // Priority 1: Per-post references (most specific)
   if (postRefs?.length) {
     for (const ref of postRefs) {
@@ -141,7 +193,7 @@ function collectReferenceImages(
       }
     }
   }
-  
+
   if (refs.length < 3 && brandInfo.productImages?.length) {
     for (const img of brandInfo.productImages) {
       if ((img.type === 'image' || img.type === 'webp') && img.url.startsWith('data:')) {
@@ -159,6 +211,16 @@ function collectReferenceImages(
   }
 
   return refs.slice(0, 3) // Max 3 reference images
+}
+
+// ──────────────────────────────────────
+// Get approved visual reference URL from post
+// ──────────────────────────────────────
+
+function getApprovedVisualRefUrl(post: CalendarPost): string | null {
+  if (!post.activeReferenceId || !post.visualReferences?.length) return null
+  const approved = post.visualReferences.find(r => r.id === post.activeReferenceId)
+  return approved?.imageUrl || null
 }
 
 // ──────────────────────────────────────
@@ -193,12 +255,13 @@ export async function generateStaticVisual(
       postRefs: draft.postReferences,
     })
 
-    const refs = collectReferenceImages(brandInfo, tenureRefs, draft.postReferences)
+    const approvedRef = getApprovedVisualRefUrl(post)
+    const refs = await collectReferenceImages(brandInfo, tenureRefs, draft.postReferences, approvedRef)
     const imageUrl = await generateImage(prompt, model, refs.length > 0 ? refs : undefined)
     return { success: true, imageUrl }
   } catch (error: any) {
     console.error('Static visual generation failed:', error)
-    return { success: false, error: error.message || 'Failed to generate static visual' }
+    return { success: false, error: sanitizeActionError(error.message) || 'Failed to generate static visual' }
   }
 }
 
@@ -222,7 +285,8 @@ export async function generateCarouselVisuals(
       .filter(l => l.trim().length > 0)
       .slice(0, slideCount)
 
-    const refs = collectReferenceImages(brandInfo, tenureRefs, draft.postReferences)
+    const approvedRef = getApprovedVisualRefUrl(post)
+    const refs = await collectReferenceImages(brandInfo, tenureRefs, draft.postReferences, approvedRef)
     const imageUrls: string[] = []
 
     // Generate cover slide
@@ -266,7 +330,7 @@ export async function generateCarouselVisuals(
     return { success: true, imageUrls }
   } catch (error: any) {
     console.error('Carousel generation failed:', error)
-    return { success: false, error: error.message || 'Failed to generate carousel' }
+    return { success: false, error: sanitizeActionError(error.message) || 'Failed to generate carousel' }
   }
 }
 
@@ -297,12 +361,13 @@ export async function generateStoryVisual(
       postRefs: draft.postReferences,
     })
 
-    const refs = collectReferenceImages(brandInfo, tenureRefs, draft.postReferences)
+    const approvedRef = getApprovedVisualRefUrl(post)
+    const refs = await collectReferenceImages(brandInfo, tenureRefs, draft.postReferences, approvedRef)
     const imageUrl = await generateImage(prompt, model, refs.length > 0 ? refs : undefined)
     return { success: true, imageUrl }
   } catch (error: any) {
     console.error('Story generation failed:', error)
-    return { success: false, error: error.message || 'Failed to generate story visual' }
+    return { success: false, error: sanitizeActionError(error.message) || 'Failed to generate story visual' }
   }
 }
 
@@ -379,12 +444,26 @@ TEXT RENDERING RULES:
 - Strong focal point with visual hierarchy through scale and position`
   }
 
-  // ── Visual Art Direction ──
+  // ── Visual Art Direction & Brand Universe ──
   const visualDirective = params.visualDirective || ''
-  
-  const artDirection = visualDirective 
-    ? `ART DIRECTION: ${visualDirective}`
-    : `ART DIRECTION (DEFAULT - since no specific direction given):
+  let artDirection = ''
+
+  if (brandInfo.brandUniverse) {
+    const bu = brandInfo.brandUniverse
+    artDirection = `=== BRAND UNIVERSE (STRICT VISUAL DNA) ===
+You are restricted to the following design language. Tonality changes are absolutely forbidden.
+- Lighting: ${bu.lightingCode}
+- Composition: ${bu.compositionCode}
+- Color Grading: ${bu.colorGrading}
+- Texture/Feel: ${bu.textureCode}
+- TG Relatability Context (WHY this works): ${bu.tgRelatability}
+
+WARNING: You must apply this exact visual wrapper to the subject matter. Do not invent a new aesthetic.
+========================================`
+  } else {
+    artDirection = visualDirective 
+      ? `ART DIRECTION: ${visualDirective}`
+      : `ART DIRECTION (DEFAULT):
 - Create a premium, editorial-quality image that could appear in a leading magazine ad.
 - Use dramatic, cinematic lighting (golden hour, studio rim lighting, or moody chiaroscuro).
 - Apply a shallow depth-of-field for visual depth where appropriate.
@@ -392,6 +471,7 @@ TEXT RENDERING RULES:
 - Texture: Add tactile quality (grain, fabric texture, food photography macro detail).
 - Mood: Aspirational, confident, warm. NOT clinical or corporate.
 - Color grading: Apply a subtle, cohesive color grade (warm amber, cool teal, or rich chocolate tones).`
+  }
 
   // ── Reference Context ──
   const hasReferences = (brandInfo.brandReferences?.length || 0) > 0
@@ -436,15 +516,18 @@ ${generalRefs.length > 0 ? `- ${generalRefs.length} General refs: Draw creative 
 
   // ── Visual Guardrails (Do's & Don'ts) ──
   let guardrailsBlock = ''
-  if (params.guardrails?.length) {
-    const dos = params.guardrails.filter(g => g.type === 'do' && g.rule.trim()).map(g => `  DO: ${g.rule}`)
-    const donts = params.guardrails.filter(g => g.type === 'dont' && g.rule.trim()).map(g => `  DON'T: ${g.rule}`)
-    if (dos.length > 0 || donts.length > 0) {
-      guardrailsBlock = `\nBRAND VISUAL GUARDRAILS (STRICT):
+  const dos = params.guardrails?.filter(g => g.type === 'do' && g.rule.trim()).map(g => `  DO: ${g.rule}`) || []
+  const donts = params.guardrails?.filter(g => g.type === 'dont' && g.rule.trim()).map(g => `  DON'T: ${g.rule}`) || []
+  
+  if (brandInfo.brandUniverse?.negativeRules) {
+    brandInfo.brandUniverse.negativeRules.forEach(rule => donts.push(`  DON'T (CRITICAL): ${rule}`))
+  }
+
+  if (dos.length > 0 || donts.length > 0) {
+    guardrailsBlock = `\nBRAND VISUAL GUARDRAILS (STRICT):
 ${dos.join('\n')}
 ${donts.join('\n')}
-These rules are derived from the brand's reference images and are NON-NEGOTIABLE.`
-    }
+These rules are derived from the brand's visual DNA and are NON-NEGOTIABLE.`
   }
 
   // ── Layout System (per format) ──
@@ -488,42 +571,34 @@ If the concept references "${params.concept}" and it mentions a product, cross-c
 ══════════════════════════════════════════════════════`
   }
 
-  // ── Assemble Final Prompt ──
-  return `You are a world-class creative director at a premium design agency. Create ${formatSpec} for the brand "${brandInfo.name}" (${brandInfo.industry} industry).
+  // ── Assemble Final Prompt (Subject First, Style Second) ──
+  return `You are a world-class creative director and visual psychologist. Your goal is to create ${formatSpec} for the brand "${brandInfo.name}".
 
-═══ BRAND CONTEXT ═══
-Brand: ${brandInfo.name}
-Industry: ${brandInfo.industry}
-Brand Personality: ${params.persona}
-Content Concept: ${params.concept}
+═══ 1. THE SUBJECT & USAGE STORY (ANCHOR) ═══
+Brand: ${brandInfo.name} (${brandInfo.industry})
+Content Concept (The Scene): ${params.concept}
 Content Pillar: ${params.pillar}
 ${productBlock}
+CRITICAL: Make sure the human element or product usage feels intensely relatable to the target audience. Do not make it abstract or confusing. The subject must be clearly visible and realistic.
 
-═══ DESIGN SYSTEM ═══
-${colorBlock}
-
-${typographyBlock}
-
-═══ CONTENT ═══
-${textBlock}
-
-═══ CREATIVE DIRECTION ═══
+═══ 2. THE BRAND UNIVERSE (VISUAL WRAPPER) ═══
 ${artDirection}
 ${referenceBlock}
 ${aestheticBlock}
-${guardrailsBlock}
+${colorBlock}
 
+═══ 3. TYPOGRAPHY & LAYOUT ═══
 ${layoutGuidance}
+${typographyBlock}
+${textBlock}
 
-═══ NON-NEGOTIABLE RULES ═══
-1. PREMIUM QUALITY - This must look like it was designed by a top creative agency, not a template tool.
-2. NO STOCK PHOTO AESTHETIC - Avoid generic, overly-lit, corporate-feeling imagery.
-3. SCROLL-STOPPING - The image must arrest attention within 0.3 seconds in a busy social media feed.
-4. TEXT LEGIBILITY - If text is present, it MUST be perfectly readable. No exceptions.
-5. BRAND COHERENCE - Colors, mood, and tone must feel like they belong to ${brandInfo.name}.
-6. NO EM DASHES - Never render em dashes, en dashes, or long dashes in any text.
-7. NO WATERMARKS - No watermarks, no "created by AI" labels, no stock photo ID overlays.
-8. NO BORDERS OR FRAMES - The design should be full-bleed, edge to edge.
-9. CAMERA-READY - This image should be publishable without any post-production.
-10. REFERENCE IMAGE FIDELITY - If reference images are provided, they are the PRIMARY source of truth for the product's visual appearance. Match the product shape, color, texture, and plating/presentation EXACTLY. Do not reimagine or reinvent the product.`
+═══ 4. NON-NEGOTIABLE GUARDRAILS ═══
+${guardrailsBlock}
+1. PREMIUM QUALITY - Must look designed by a top agency, not a template tool.
+2. NO STOCK PHOTO AESTHETIC - Avoid generic, evenly-lit, corporate imagery.
+3. SUBJECT TRUMPS STYLE - If the aesthetic rules conflict with making the product visible/usable, prioritize making the product look good and realistic.
+4. BRAND COHERENCE - Colors, mood, and tone must match the Brand Universe exactly. No hallucinations.
+5. NO EM DASHES - Never render em dashes, en dashes, or long dashes in any text.
+6. NO WATERMARKS - No "created by AI" labels, no stock photo ID overlays.
+7. REFERENCE IMAGE FIDELITY - If reference images are provided, they are the PRIMARY source of truth for the product's visual appearance. Match the product shape, color, texture exactly.`
 }

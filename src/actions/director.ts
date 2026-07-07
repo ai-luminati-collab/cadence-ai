@@ -1,4 +1,31 @@
 'use server'
+
+// Server-side error message sanitizer for action return values
+function sanitizeActionError(msg: any): string {
+  if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
+  const patterns = [
+    [/credit balance is too low/i, 'AI service temporarily unavailable.'],
+    [/insufficient.?funds/i, 'AI service temporarily unavailable.'],
+    [/billing/i, 'AI service temporarily unavailable.'],
+    [/rate.?limit|too many requests|overloaded/i, 'AI engine is busy. Please try again.'],
+    [/invalid.?api.?key|authentication|permission/i, 'AI service configuration error.'],
+    [/context.?length|too.?long|token.?limit/i, 'Content too large for AI processing.'],
+    [/timeout|timed.?out|ETIMEDOUT/i, 'Request timed out. Please try again.'],
+    [/ECONNREFUSED|ENOTFOUND|network/i, 'Network error. Please try again.'],
+    [/not valid JSON|Unexpected token/i, 'AI returned unexpected response. Please try again.'],
+    [/sk-[a-zA-Z0-9]/i, 'An unexpected error occurred.'],
+  ];
+  for (const [pat, safe] of (patterns as [RegExp, string][])) {
+    if (pat.test(msg)) return safe;
+  }
+  if (msg.startsWith('{') || msg.startsWith('4') || msg.startsWith('5') || msg.length > 200) {
+    return 'An unexpected error occurred.';
+  }
+  return msg;
+}
+
+import { safeParseJSON, requireParseJSON, withRetry } from '@/lib/ai-resilience'
+
 import { askExpertAgent, askExpertAgentPremium } from '@/lib/openai-agent'
 import { BrandInfo, Strategy, CalendarPost, ContentDraft } from '@/stores/brand'
 import { getUniversalKnowledge } from '@/lib/knowledge-loader'
@@ -109,15 +136,15 @@ ${universalKB}
 `
 
   try {
-    const res = await askExpertAgentPremium(prompt, brandOSContext ? '' : undefined)
+    const res = await withRetry(() => askExpertAgentPremium(prompt, brandOSContext ? '' : undefined)) // Claude-only: Blanc Mode was failing on GPT worker
     if (!res.success || !res.data) throw new Error("Director is unavailable.")
     
     let cleanText = res.data.replace(/```json/g, '').replace(/```/g, '').trim()
-    const parsed = JSON.parse(cleanText)
+    const parsed = requireParseJSON(cleanText)
     
     return { success: true, data: parsed }
   } catch (error: any) {
-    return { success: false, error: error.message || "Failed to communicate with Director." }
+    return { success: false, error: sanitizeActionError(error.message) || "Failed to communicate with Director." }
   }
 }
 
@@ -171,14 +198,14 @@ Maximum 5 questions, prioritized by impact on content quality.`
 
   try {
     // Gap detection is lightweight — doesn't need full KB
-    const res = await askExpertAgent(prompt, true, '')
+    const res = await withRetry(() => askExpertAgent(prompt, true, ''))
     if (!res.success || !res.data) throw new Error("Gap detection failed.")
     
     const cleaned = res.data.replace(/```json/g, '').replace(/```/g, '').trim()
-    const parsed = JSON.parse(cleaned)
+    const parsed = requireParseJSON(cleaned)
     
     return { success: true, data: parsed }
   } catch (error: any) {
-    return { success: false, error: error.message || "Gap detection failed." }
+    return { success: false, error: sanitizeActionError(error.message) || "Gap detection failed." }
   }
 }
