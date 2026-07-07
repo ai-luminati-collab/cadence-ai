@@ -185,17 +185,17 @@ export async function GET(request: NextRequest) {
   // Vercel Cron sends CRON_SECRET in the Authorization header.
   // Manual triggers can pass it as a query param.
   const authHeader = request.headers.get('authorization')
-  const querySecret = request.nextUrl.searchParams.get('secret')
   const cronSecret = process.env.CRON_SECRET?.trim()
 
-  if (cronSecret) {
-    const isAuthorized =
-      authHeader === `Bearer ${cronSecret}` ||
-      querySecret?.trim() === cronSecret
-    if (!isAuthorized) {
-      console.warn('🚫 Algorithm Scout: Unauthorized access attempt')
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+  if (!cronSecret) {
+    console.error('CRON_SECRET not configured — rejecting request')
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const isAuthorized = authHeader === `Bearer ${cronSecret}`
+  if (!isAuthorized) {
+    console.warn('Algorithm Scout: Unauthorized access attempt')
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   // ─── Validate Environment ──────────────────────────────

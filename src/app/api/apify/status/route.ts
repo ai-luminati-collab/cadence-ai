@@ -7,8 +7,12 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getProfiles, getCompetitorPosts, getBrandEngagementStats } from '@/lib/bigquery'
+import { requireAuth } from '@/lib/api-auth'
 
 export async function GET(req: NextRequest) {
+  const auth = await requireAuth()
+  if (auth.error) return auth.error
+
   try {
     const brandId = req.nextUrl.searchParams.get('brandId')
     if (!brandId) {
@@ -58,6 +62,6 @@ export async function GET(req: NextRequest) {
     })
   } catch (err: any) {
     console.error('Apify status error:', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to fetch competitor data' }, { status: 500 })
   }
 }

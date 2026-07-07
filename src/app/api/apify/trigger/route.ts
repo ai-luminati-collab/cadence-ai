@@ -11,10 +11,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { triggerScrape, type SocialPlatform } from '@/lib/apify-social'
 import { insertScrapeJob, ensureBigQueryTables } from '@/lib/bigquery'
 import { randomUUID } from 'crypto'
+import { requireAuth } from '@/lib/api-auth'
 
 export const maxDuration = 30
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth()
+  if (auth.error) return auth.error
+
   try {
     const body = await req.json()
     const { brandId, platform, handle, profileType = 'competitor', postsLimit = 30 } = body
@@ -35,7 +39,7 @@ export async function POST(req: NextRequest) {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
       : 'http://localhost:3000'
-    const webhookUrl = `${baseUrl}/api/apify/webhook?brandId=${brandId}&platform=${platform}&handle=${encodeURIComponent(handle)}&profileType=${profileType}`
+    const webhookUrl = `${baseUrl}/api/apify/webhook?brandId=${encodeURIComponent(brandId)}&platform=${encodeURIComponent(platform)}&handle=${encodeURIComponent(handle)}&profileType=${encodeURIComponent(profileType)}`
 
     // Trigger the Apify scrape
     const { runId } = await triggerScrape(platform as SocialPlatform, handle, {

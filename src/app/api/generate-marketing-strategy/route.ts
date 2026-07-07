@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateMarketingStrategy } from '@/actions/strategy'
+import { requireAuth } from '@/lib/api-auth'
 
 function sanitizeRouteError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -20,6 +21,9 @@ function sanitizeRouteError(msg: any): string {
 export const maxDuration = 300
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth()
+  if (auth.error) return auth.error
+
   let body: any
   try {
     body = await req.json()

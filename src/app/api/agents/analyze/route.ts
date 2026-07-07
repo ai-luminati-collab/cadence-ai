@@ -11,10 +11,14 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getOrchestrator } from '@/lib/agent-orchestrator'
+import { requireAuth } from '@/lib/api-auth'
 
 export const maxDuration = 300 // 5 min max — multi-agent pipeline
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth()
+  if (auth.error) return auth.error
+
   try {
     const body = await req.json()
     const { brandContext, performanceData, competitorData, contentDrafts } = body
@@ -49,6 +53,6 @@ export async function POST(req: NextRequest) {
     })
   } catch (err: any) {
     console.error('Agent analysis error:', err)
-    return NextResponse.json({ error: err.message || 'Agent analysis failed' }, { status: 500 })
+    return NextResponse.json({ error: 'Agent analysis failed' }, { status: 500 })
   }
 }

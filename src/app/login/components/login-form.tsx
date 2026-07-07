@@ -131,31 +131,16 @@ export function LoginForm() {
         </div>
       )}
 
-      {/* Bypass purely for development / fallback */}
+      {/* Dev bypass — skips Supabase entirely */}
       {process.env.NODE_ENV === 'development' && (
          <div className="mt-8 pt-4 border-t border-[var(--color-border-subtle)] text-center">
             <p className="text-[10px] text-[var(--color-text-tertiary)] mb-2 uppercase tracking-widest font-bold">Developer Bypass</p>
             <button
                type="button"
-               disabled={isLoading}
-               onClick={async () => {
-                  setIsLoading(true)
-                  const email = 'test@example.com'
-                  const password = 'password123'
-                  let loginRes = await supabase.auth.signInWithPassword({ email, password })
-                  if (loginRes.error) {
-                     const signUpRes = await supabase.auth.signUp({ email, password })
-                     if (!signUpRes.error) {
-                         loginRes = await supabase.auth.signInWithPassword({ email, password })
-                     }
-                  }
-                  if (!loginRes.error) window.location.href = '/dashboard'
-                  else setMessage({ type: 'error', text: loginRes.error.message })
-                  setIsLoading(false)
-               }}
+               onClick={() => { window.location.href = '/onboarding' }}
                className="text-xs px-4 py-2 border border-slate-700 bg-slate-800 text-slate-300 rounded-md hover:bg-slate-700 transition-colors"
             >
-               Force Dev Login (Bypass Email)
+               Skip Login (Dev Mode)
             </button>
          </div>
       )}

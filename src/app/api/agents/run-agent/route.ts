@@ -20,10 +20,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { AgentTeam, type AgentId, type AgentMessage, type EscalationPackage } from '@/lib/agent-team'
 import type { BrandMemoryStore } from '@/lib/brand-memory'
+import { requireAuth } from '@/lib/api-auth'
+
+const VALID_AGENT_IDS = new Set(['scout', 'strategist', 'planner', 'copywriter', 'creative', 'trend_radar', 'ceo'])
 
 export const maxDuration = 60 // single agent — fits Hobby plan
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth()
+  if (auth.error) return auth.error
+
   try {
     const body = await req.json()
     const { agentId, brandContext, inputContext, existingMessages, existingEscalations, brandMemory } = body
@@ -32,11 +38,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing agentId or brandContext' }, { status: 400 })
     }
 
+    if (!VALID_AGENT_IDS.has(agentId)) {
+      return NextResponse.json({ error: 'Invalid agentId' }, { status: 400 })
+    }
+
     if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json({ error: 'OPENAI_API_KEY not configured' }, { status: 500 })
+      return NextResponse.json({ error: 'AI service not configured' }, { status: 500 })
     }
     if (!process.env.ANTHROPIC_API_KEY && agentId === 'ceo') {
-      return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured (needed for CEO)' }, { status: 500 })
+      return NextResponse.json({ error: 'AI service not configured' }, { status: 500 })
     }
 
     const startTime = Date.now()

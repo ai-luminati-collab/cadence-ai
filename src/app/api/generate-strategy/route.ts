@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateBrandStrategy } from '@/actions/strategy'
-
-// Vercel Hobby plan: 60s max. Pro: 300s.
-// We use streaming with heartbeats to keep the connection alive regardless of plan.
+import { requireAuth } from '@/lib/api-auth'
 
 function sanitizeRouteError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -23,7 +21,9 @@ function sanitizeRouteError(msg: any): string {
 export const maxDuration = 300 // Capped at 60s on Hobby, 300s on Pro
 
 export async function POST(req: NextRequest) {
-  // Parse request body first (fast, won't timeout)
+  const auth = await requireAuth()
+  if (auth.error) return auth.error
+
   let body: any
   try {
     body = await req.json()
@@ -36,10 +36,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Missing brandInfo' }, { status: 400 })
   }
 
-  // ═══ STREAMING RESPONSE ═══
-  // Send heartbeat whitespace every 5s to keep the connection alive on Vercel Hobby.
-  // Vercel kills idle connections, but as long as bytes are flowing, the function stays alive.
-  // The actual JSON payload is sent at the very end after a \n__JSON__\n delimiter.
   const encoder = new TextEncoder()
 
   const stream = new ReadableStream({

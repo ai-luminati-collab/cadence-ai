@@ -27,32 +27,30 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // IMPORTANT: Avoid writing any logic between createServerClient and supabase.auth.getUser()
+  // Use getSession() instead of getUser() in middleware.
+  // getSession() reads from the cookie (no network call) so it won't
+  // trigger MIDDLEWARE_INVOCATION_TIMEOUT on Vercel's Edge runtime.
+  // The heavier getUser() validation happens in API routes via requireAuth().
   const {
-    data: { user },
-  } = await supabase.auth.getUser()
+    data: { session },
+  } = await supabase.auth.getSession()
 
-  // Protect all routes except auth routes (like /login, /signup, /auth path, etc.)
-  // and public routes if any.
-  if (
-    !user &&
-    !request.nextUrl.pathname.startsWith('/login') &&
-    !request.nextUrl.pathname.startsWith('/auth') &&
-    request.nextUrl.pathname !== '/'
-  ) {
-    // TEMPORARY FIX for development:
-    // Because Supabase Magic Links require SMTP setup to work reliably locally,
-    // I am bypassing this redirect check ONLY in local dev (`npm run dev`)
-    // so you can actually view and test the SaaS pages!
-    if (process.env.NODE_ENV !== 'development') {
-       const url = request.nextUrl.clone()
-       url.pathname = '/login'
-       return NextResponse.redirect(url)
-    }
+  const isPublicRoute =
+    request.nextUrl.pathname === '/' ||
+    request.nextUrl.pathname.startsWith('/login') ||
+    request.nextUrl.pathname.startsWith('/auth')
+
+  const isApiRoute = request.nextUrl.pathname.startsWith('/api/')
+
+  // API routes handle their own auth via requireAuth() — don't redirect them.
+  // In dev mode, skip page-level redirect so local testing works without Supabase SMTP.
+  if (!session && !isPublicRoute && !isApiRoute && process.env.NODE_ENV !== 'development') {
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    return NextResponse.redirect(url)
   }
 
-  // If user is logged in and tries to access /login, redirect to dashboard or home
-  if (user && request.nextUrl.pathname.startsWith('/login')) {
+  if (session && request.nextUrl.pathname.startsWith('/login')) {
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)

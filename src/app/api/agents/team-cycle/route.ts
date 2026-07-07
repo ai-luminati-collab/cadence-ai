@@ -15,10 +15,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resetAgentTeam, type AgentId } from '@/lib/agent-team'
 import type { BrandMemoryStore } from '@/lib/brand-memory'
+import { requireAuth } from '@/lib/api-auth'
 
 export const maxDuration = 300 // 5 min — multi-agent pipeline
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth()
+  if (auth.error) return auth.error
+
   try {
     const body = await req.json()
     const { brandContext, performanceData, competitorData, trendData, calendarData, draftData, brandMemory } = body
@@ -27,12 +31,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing brandContext' }, { status: 400 })
     }
 
-    // Check API keys are configured
     if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json({ error: 'OPENAI_API_KEY not configured. Add it to Vercel environment variables.' }, { status: 500 })
+      return NextResponse.json({ error: 'AI service not configured' }, { status: 500 })
     }
     if (!process.env.ANTHROPIC_API_KEY) {
-      return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured. Add it to Vercel environment variables.' }, { status: 500 })
+      return NextResponse.json({ error: 'AI service not configured' }, { status: 500 })
     }
 
     // Reset team for fresh cycle, inject brand memory if available
