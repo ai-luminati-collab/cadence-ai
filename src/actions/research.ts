@@ -28,7 +28,7 @@ import { safeParseJSON, requireParseJSON, withRetry } from '@/lib/ai-resilience'
 
 
 import { askExpertAgent, askExpertAgentPremium } from '@/lib/openai-agent'
-import { extractWebsiteContent } from '@/lib/jina'
+import { extractWebsiteContent, extractWebsiteDeep } from '@/lib/jina'
 import { extractWebsiteContentWithApify } from '@/lib/apify-scraper'
 import { startDeepResearch, checkDeepResearchStatus } from '@/lib/deep-research'
 
@@ -214,20 +214,22 @@ export async function researchBrand(
   
   let scrapedWebsiteContext = ''
   if (website) {
-    // Try Jina first (fast, free), then Apify fallback (bypasses Cloudflare/bot protection)
-    let scrapedText = await extractWebsiteContent(website)
+    // Deep multi-page scrape via Jina (homepage + about/products/menu/pricing
+    // subpages), then Apify fallback (bypasses Cloudflare/bot protection)
+    let scrapedText = await extractWebsiteDeep(website, 3)
 
     if (!scrapedText || scrapedText.length < 200) {
-      console.log('⚠️ Jina scrape failed or returned too little content — trying Apify fallback...')
+      console.log('⚠️ Jina deep scrape failed or returned too little content — trying Apify fallback...')
       const apifyText = await extractWebsiteContentWithApify(website)
       if (apifyText) scrapedText = apifyText
     }
 
     if (scrapedText) {
-      const truncated = scrapedText.substring(0, 15000)
+      const truncated = scrapedText.substring(0, 28000)
       scrapedWebsiteContext = `
 --- LIVE WEBSITE DATA START ---
-We have scraped their live website. Here is the raw Markdown content of their homepage:
+We have scraped their live website (homepage plus key internal pages —
+about / products / menu / services / pricing where available). Raw Markdown:
 ${truncated}
 --- LIVE WEBSITE DATA END ---
       `
@@ -257,16 +259,16 @@ Return STRICTLY as JSON (no markdown wrappers):
 {
   "brandName": "The exact official name of the brand found in the research.",
   "industry": "The specific industry/category of the brand.",
-  "summary": "A 2-3 sentence executive summary of what this brand is and its market position.",
-  "discoveredAudiences": ["Audience segment 1", "Audience segment 2", "Audience segment 3"],
-  "audienceInsight": "A 50-80 word deep analysis of who their ideal customer likely is — demographics, psychographics, behaviors, pain points.",
-  "discoveredGoals": ["Most likely goal 1", "Most likely goal 2"],
+  "summary": "A 3-5 sentence executive summary of what this brand is, its market position, and its biggest opportunity — cite specifics from the scraped pages.",
+  "discoveredAudiences": ["Specific audience segment 1 with detail", "Audience segment 2", "Audience segment 3", "Audience segment 4"],
+  "audienceInsight": "An 80-120 word deep analysis of who their ideal customer likely is — demographics, psychographics, behaviors, pain points, aspirations. Anchor to evidence from their live copy.",
+  "discoveredGoals": ["Most likely goal 1", "Most likely goal 2", "Most likely goal 3"],
   "suggestedTone": ["Tone 1", "Tone 2"],
   "suggestedPlatforms": ["Platform 1", "Platform 2", "Platform 3"],
-  "competitorAnalysis": "A 40-60 word analysis of the competitive landscape and 2-3 likely key competitors.",
-  "uspHypothesis": "A 1-2 sentence hypothesis of what makes this brand unique based on available information.",
-  "psychographicTriggers": "A 40-60 word analysis of the psychological triggers (status, FOMO, belonging, aspiration, etc.) that would resonate with their audience.",
-  "industryContext": "A 30-50 word snapshot of current trends and opportunities in their specific industry.",
+  "competitorAnalysis": "An 80-120 word analysis of the competitive landscape naming 3-5 likely key competitors and how this brand differentiates against each.",
+  "uspHypothesis": "A 2-3 sentence hypothesis of what makes this brand unique — grounded in real differentiators visible on their site.",
+  "psychographicTriggers": "A 60-100 word analysis of the psychological triggers (status, FOMO, belonging, aspiration, etc.) that would resonate with their audience, tied to their actual positioning.",
+  "industryContext": "A 50-80 word snapshot of current trends and opportunities in their specific industry.",
   "coreProducts": ["Exact real product/menu item 1", "Product 2", "Product 3"],
   "communicationStyle": "A short phrase describing how they should communicate.",
   "contentFrequency": "A suggested posting frequency (e.g. '5x per week').",

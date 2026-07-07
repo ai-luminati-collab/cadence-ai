@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useBrandStore, BrandInfo, ProductEntry, ServiceEntry, UploadedDoc } from '@/stores/brand'
 // generateBrandStrategy moved to API route to avoid 60s serverless timeout
 import { researchBrand, BrandResearch, ToneSample, startBrandDeepResearch, pollDeepResearch, synthesizeResearchReport } from '@/actions/research'
+import { generateOnboardingQuestions, DynamicOnboardingQuestions } from '@/actions/onboardingQuestions'
 import { ResearchWaiting } from '@/components/ui/ResearchWaiting'
 import { extractEpiphany } from '@/actions/epiphany'
 import { extractFromMultipleSources } from '@/actions/productExtractor'
@@ -83,6 +84,8 @@ export default function OnboardingPage() {
   const [isResearching, setIsResearching] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [research, setResearch] = React.useState<BrandResearch | null>(null)
+  const [dynamicQ, setDynamicQ] = React.useState<DynamicOnboardingQuestions | null>(null)
+  const [isCustomizingQuestions, setIsCustomizingQuestions] = React.useState(false)
   const [deepResearchId, setDeepResearchId] = React.useState<string | null>(null)
   const [researchElapsed, setResearchElapsed] = React.useState(0)
   const timerRef = React.useRef<NodeJS.Timeout | null>(null)
@@ -293,6 +296,16 @@ export default function OnboardingPage() {
   // --- AI Research (Deep Research with fallback) ---
   const applyResearchData = (data: BrandResearch) => {
     setResearch(data)
+
+    // Fire-and-forget: have the premium reasoning model rewrite the
+    // remaining onboarding questions + options around this research.
+    // Static options render until (and unless) this resolves.
+    setDynamicQ(null)
+    setIsCustomizingQuestions(true)
+    generateOnboardingQuestions(data, formData.name || '', formData.industry || '')
+      .then(res => { if (res.success && res.data) setDynamicQ(res.data) })
+      .catch(() => {})
+      .finally(() => setIsCustomizingQuestions(false))
 
     // Auto-populate brand name & industry if research discovered them
     if (data.brandName && !formData.name) updateForm('name', data.brandName)
@@ -964,13 +977,16 @@ export default function OnboardingPage() {
             <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300">
               <div className="mb-4">
                 <h2 className="text-3xl font-display font-bold text-slate-900 flex items-center gap-3"><Users className="w-8 h-8 text-blue-500"/> Audience & Goals</h2>
-                <p className="text-slate-500 mt-2">We've pre-selected based on research. Adjust to match your vision.</p>
+                <p className="text-slate-500 mt-2">{dynamicQ?.audienceQuestion || "We've pre-selected based on research. Adjust to match your vision."}</p>
+                {isCustomizingQuestions && (
+                  <p className="text-xs text-blue-500 mt-1 animate-pulse">✦ Personalizing these questions for your brand…</p>
+                )}
               </div>
 
               <div className="space-y-3">
                 <label className="text-sm font-bold uppercase tracking-wider text-slate-500">Primary Audiences (up to 3) *</label>
                 <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                  {Array.from(new Set([...(research?.discoveredAudiences || []), ...(formData.primaryAudiences || []), ...customChips.primaryAudiences, ...AUDIENCE_ARCHETYPES])).map(arch => (
+                  {Array.from(new Set([...(dynamicQ?.audienceOptions || []), ...(research?.discoveredAudiences || []), ...(formData.primaryAudiences || []), ...customChips.primaryAudiences, ...(dynamicQ ? [] : AUDIENCE_ARCHETYPES)])).map(arch => (
                     <button key={arch} type="button" onClick={() => toggleItem('primaryAudiences', arch)} className={chipSelected(formData.primaryAudiences?.includes(arch) || false, 'blue')}>
                       {arch}
                       {formData.primaryAudiences?.includes(arch) && <CheckCircle2 className="w-4 h-4 text-blue-500" />}
@@ -1020,8 +1036,9 @@ export default function OnboardingPage() {
 
               <div className="space-y-3 pt-4 border-t border-slate-100">
                 <label className="text-sm font-bold uppercase tracking-wider text-slate-500">Strategic Goals (up to 3) *</label>
+                {dynamicQ?.goalQuestion && <p className="text-xs text-slate-400">{dynamicQ.goalQuestion}</p>}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {Array.from(new Set([...(research?.discoveredGoals || []), ...(formData.primaryGoals || []), ...customChips.primaryGoals, ...GOALS])).map(goal => (
+                  {Array.from(new Set([...(dynamicQ?.goalOptions || []), ...(research?.discoveredGoals || []), ...(formData.primaryGoals || []), ...customChips.primaryGoals, ...(dynamicQ ? [] : GOALS)])).map(goal => (
                     <button key={goal} type="button" onClick={() => toggleItem('primaryGoals', goal)} className={chipSelected(formData.primaryGoals?.includes(goal) || false, 'green')}>
                       {goal}
                       {formData.primaryGoals?.includes(goal) && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
@@ -1048,7 +1065,10 @@ export default function OnboardingPage() {
             <div className="space-y-6 animate-in fade-in zoom-in-95 duration-300">
               <div className="mb-4">
                 <h2 className="text-3xl font-display font-bold text-slate-900 flex items-center gap-3"><Sparkles className="w-8 h-8 text-blue-500"/> Brand Voice</h2>
-                <p className="text-slate-500 mt-2">Pick the voice that sounds like your brand. Each card shows a real sample caption.</p>
+                <p className="text-slate-500 mt-2">{dynamicQ?.voiceQuestion || "Pick the voice that sounds like your brand. Each card shows a real sample caption."}</p>
+                {isCustomizingQuestions && (
+                  <p className="text-xs text-blue-500 mt-1 animate-pulse">✦ Personalizing these questions for your brand…</p>
+                )}
               </div>
 
               <div className="space-y-3">
@@ -1100,8 +1120,9 @@ export default function OnboardingPage() {
 
               <div className="space-y-3 pt-4 border-t border-slate-100">
                 <label className="text-sm font-bold uppercase tracking-wider text-slate-500">Communication Style *</label>
+                {dynamicQ?.styleQuestion && <p className="text-xs text-slate-400">{dynamicQ.styleQuestion}</p>}
                 <div className="grid grid-cols-2 gap-3">
-                  {COMMUNICATION_STYLES.map(style => (
+                  {Array.from(new Set([...(dynamicQ?.styleOptions || []), ...(dynamicQ ? [] : COMMUNICATION_STYLES), ...(formData.communicationStyle ? [formData.communicationStyle] : [])])).map(style => (
                     <button key={style} type="button" onClick={() => updateForm('communicationStyle', style)}
                       className={`px-4 py-4 rounded-xl text-sm font-bold transition-all text-center border-2 cursor-pointer ${
                         formData.communicationStyle === style 
@@ -1121,8 +1142,21 @@ export default function OnboardingPage() {
             <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300">
               <div className="mb-4">
                 <h2 className="text-3xl font-display font-bold text-slate-900 flex items-center gap-3"><Activity className="w-8 h-8 text-amber-500"/> Platforms & Edge</h2>
-                <p className="text-slate-500 mt-2">Where you'll compete and what makes you different.</p>
+                <p className="text-slate-500 mt-2">{dynamicQ?.platformQuestion || "Where you'll compete and what makes you different."}</p>
               </div>
+
+              {dynamicQ?.platformRecommendations && dynamicQ.platformRecommendations.length > 0 && (
+                <div className="p-4 bg-purple-50 border border-purple-100 rounded-xl space-y-2">
+                  <p className="text-xs font-black uppercase tracking-wider text-purple-600">✦ AI Platform Playbook for your brand</p>
+                  {dynamicQ.platformRecommendations.map(rec => (
+                    <div key={rec.platform} className="text-sm text-slate-700">
+                      <span className="font-bold">{rec.platform}</span>
+                      <span className="text-purple-600 font-semibold"> · {rec.frequency}</span>
+                      <span className="text-slate-500"> — {rec.rationale}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <div className="space-y-4">
                 <label className="text-sm font-bold uppercase tracking-wider text-slate-500">Scope of Work (Content Frequency)</label>
@@ -1135,12 +1169,15 @@ export default function OnboardingPage() {
                              <Activity className="w-3.5 h-3.5 text-purple-500"/> {platform}
                            </p>
                            <div className="flex flex-wrap gap-2">
-                             {CONTENT_FREQUENCIES.map(freq => (
-                               <button key={freq} type="button" onClick={() => setFormData(prev => ({...prev, contentFrequency: { ...prev.contentFrequency, [platform]: freq }}))}
-                                 className={chipSelected(currentFreq === freq, 'purple')}>
-                                 {freq}
-                               </button>
-                             ))}
+                             {CONTENT_FREQUENCIES.map(freq => {
+                               const isAIPick = dynamicQ?.platformRecommendations?.some(r => r.platform === platform && r.frequency === freq) || false
+                               return (
+                                 <button key={freq} type="button" onClick={() => setFormData(prev => ({...prev, contentFrequency: { ...prev.contentFrequency, [platform]: freq }}))}
+                                   className={chipSelected(currentFreq === freq, 'purple')}>
+                                   {freq}{isAIPick && <span className="ml-1.5 text-[9px] font-black text-purple-500 align-middle">✦ AI</span>}
+                                 </button>
+                               )
+                             })}
                            </div>
                         </div>
                      )
