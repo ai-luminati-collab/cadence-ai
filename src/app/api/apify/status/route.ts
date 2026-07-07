@@ -6,9 +6,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/api-auth'
 import { getProfiles, getCompetitorPosts, getBrandEngagementStats } from '@/lib/bigquery'
 
 export async function GET(req: NextRequest) {
+  const auth = await requireAuth()
+  if (auth.error) return auth.error
+
   try {
     const brandId = req.nextUrl.searchParams.get('brandId')
     if (!brandId) {

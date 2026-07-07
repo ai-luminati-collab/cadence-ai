@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/api-auth'
 import { parseDocument, ParsedDocument } from '@/lib/document-parser'
 
 export const runtime = 'nodejs'
@@ -34,6 +35,9 @@ const ACCEPTED_EXT = /\.(pdf|docx|pptx|doc|ppt|png|jpe?g|webp|gif|txt|md)$/i
  * text and feeds it into the product extractor, then drops the files.
  */
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth()
+  if (auth.error) return auth.error
+
   try {
     const formData = await req.formData()
     const files = formData.getAll('files') as File[]

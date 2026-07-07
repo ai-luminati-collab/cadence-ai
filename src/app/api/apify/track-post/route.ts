@@ -9,6 +9,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/api-auth'
 import { scrapeProfile, type SocialPlatform } from '@/lib/apify-social'
 
 export const maxDuration = 120
@@ -70,6 +71,9 @@ function normalizePlatform(platform: string): SocialPlatform | null {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth()
+  if (auth.error) return auth.error
+
   try {
     const { postUrl, platform, brandId, handle } = await req.json()
 

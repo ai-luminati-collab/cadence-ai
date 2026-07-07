@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/api-auth'
 import { generateMarketingStrategy } from '@/actions/strategy'
 
 function sanitizeRouteError(msg: any): string {
@@ -20,6 +21,9 @@ function sanitizeRouteError(msg: any): string {
 export const maxDuration = 300
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth()
+  if (auth.error) return auth.error
+
   let body: any
   try {
     body = await req.json()

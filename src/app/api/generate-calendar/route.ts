@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/api-auth'
 import { generateContentCalendar } from '@/actions/calendar'
 
 // Vercel Hobby plan: 60s max. Pro: 300s.
@@ -23,6 +24,9 @@ function sanitizeRouteError(msg: any): string {
 export const maxDuration = 300 // Capped at 60s on Hobby, 300s on Pro
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth()
+  if (auth.error) return auth.error
+
   // Parse request body first (fast, won't timeout)
   let body: any
   try {

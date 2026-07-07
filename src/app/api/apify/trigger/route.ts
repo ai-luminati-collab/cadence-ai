@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/api-auth'
 import { triggerScrape, type SocialPlatform } from '@/lib/apify-social'
 import { insertScrapeJob, ensureBigQueryTables } from '@/lib/bigquery'
 import { randomUUID } from 'crypto'
@@ -15,6 +16,9 @@ import { randomUUID } from 'crypto'
 export const maxDuration = 30
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth()
+  if (auth.error) return auth.error
+
   try {
     const body = await req.json()
     const { brandId, platform, handle, profileType = 'competitor', postsLimit = 30 } = body

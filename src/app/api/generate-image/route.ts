@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/api-auth'
 import { generateStaticVisual, generateCarouselVisuals, generateStoryVisual } from '@/actions/imageGen'
 
 // Image gen can take 30-60s for carousels (multiple slides)
@@ -22,6 +23,9 @@ function sanitizeRouteError(msg: any): string {
 export const maxDuration = 120
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth()
+  if (auth.error) return auth.error
+
   try {
     const body = await req.json()
     const { post, draft, brandInfo, strategy, format, model, slideCount } = body

@@ -27,48 +27,30 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // Race auth check against a timeout so a slow/down Supabase doesn't 504 the whole app
-  let user: any = null
-  try {
-    const authResult = await Promise.race([
-      supabase.auth.getUser(),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Auth timeout')), 5000))
-    ])
-    user = authResult.data?.user ?? null
-  } catch {
-    // Supabase unreachable or slow — fail CLOSED. Public pages stay
-    // reachable, but protected routes return 503 instead of silently
-    // opening the whole app during a Supabase outage.
-    const path = request.nextUrl.pathname
-    const isPublic = path === '/' || path.startsWith('/login') || path.startsWith('/auth')
-    if (isPublic) return supabaseResponse
-    return new NextResponse('Authentication service temporarily unavailable. Please try again shortly.', {
-      status: 503,
-      headers: { 'Retry-After': '30' },
-    })
+  // Use getSession() instead of getUser() in middleware.
+  // getSession() reads from the cookie (no network call) so it won't
+  // trigger MIDDLEWARE_INVOCATION_TIMEOUT on Vercel's Edge runtime.
+  // The heavier getUser() validation happens in API routes via requireAuth().
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+
+  const isPublicRoute =
+    request.nextUrl.pathname === '/' ||
+    request.nextUrl.pathname.startsWith('/login') ||
+    request.nextUrl.pathname.startsWith('/auth')
+
+  const isApiRoute = request.nextUrl.pathname.startsWith('/api/')
+
+  // API routes handle their own auth via requireAuth() — don't redirect them.
+  // In dev mode, skip page-level redirect so local testing works without Supabase SMTP.
+  if (!session && !isPublicRoute && !isApiRoute && process.env.NODE_ENV !== 'development') {
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    return NextResponse.redirect(url)
   }
 
-  // Protect all routes except auth routes (like /login, /signup, /auth path, etc.)
-  // and public routes if any.
-  if (
-    !user &&
-    !request.nextUrl.pathname.startsWith('/login') &&
-    !request.nextUrl.pathname.startsWith('/auth') &&
-    request.nextUrl.pathname !== '/'
-  ) {
-    // TEMPORARY FIX for development:
-    // Because Supabase Magic Links require SMTP setup to work reliably locally,
-    // I am bypassing this redirect check ONLY in local dev (`npm run dev`)
-    // so you can actually view and test the SaaS pages!
-    if (process.env.NODE_ENV !== 'development') {
-       const url = request.nextUrl.clone()
-       url.pathname = '/login'
-       return NextResponse.redirect(url)
-    }
-  }
-
-  // If user is logged in and tries to access /login, redirect to dashboard or home
-  if (user && request.nextUrl.pathname.startsWith('/login')) {
+  if (session && request.nextUrl.pathname.startsWith('/login')) {
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)

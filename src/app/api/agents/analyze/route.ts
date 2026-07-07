@@ -10,11 +10,15 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/api-auth'
 import { getOrchestrator } from '@/lib/agent-orchestrator'
 
 export const maxDuration = 300 // 5 min max — multi-agent pipeline
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth()
+  if (auth.error) return auth.error
+
   try {
     const body = await req.json()
     const { brandContext, performanceData, competitorData, contentDrafts } = body
