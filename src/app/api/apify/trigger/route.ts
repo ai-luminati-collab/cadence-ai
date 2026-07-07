@@ -31,11 +31,17 @@ export async function POST(req: NextRequest) {
     // Ensure BigQuery tables exist
     await ensureBigQueryTables()
 
-    // Build webhook URL
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : 'http://localhost:3000'
-    const webhookUrl = `${baseUrl}/api/apify/webhook?brandId=${brandId}&platform=${platform}&handle=${encodeURIComponent(handle)}&profileType=${profileType}`
+    // Build webhook URL. Prefer the stable production domain over
+    // VERCEL_URL (which is the per-deployment URL and may sit behind
+    // Vercel Deployment Protection, bouncing Apify's callbacks).
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+      ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+
+    const webhookSecret = process.env.APIFY_WEBHOOK_SECRET?.trim()
+    if (!webhookSecret) {
+      return NextResponse.json({ error: 'APIFY_WEBHOOK_SECRET is not set — refusing to register an unauthenticated webhook' }, { status: 503 })
+    }
+    const webhookUrl = `${baseUrl}/api/apify/webhook?secret=${encodeURIComponent(webhookSecret)}&brandId=${brandId}&platform=${platform}&handle=${encodeURIComponent(handle)}&profileType=${profileType}`
 
     // Trigger the Apify scrape
     const { runId } = await triggerScrape(platform as SocialPlatform, handle, {

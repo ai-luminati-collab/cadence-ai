@@ -151,17 +151,23 @@ export async function insertScrapeJob(job: Record<string, any>): Promise<void> {
 
 export async function updateScrapeJob(jobId: string, updates: Record<string, any>): Promise<void> {
   const bq = getBQ()
-  const setClauses = Object.entries(updates)
-    .map(([key, val]) => {
-      if (val === null) return `${key} = NULL`
-      if (typeof val === 'string') return `${key} = '${val.replace(/'/g, "\\'")}'`
-      return `${key} = ${val}`
-    })
-    .join(', ')
+  // Column names come from our own callers; values are parameterized so
+  // webhook-supplied strings (e.g. Apify run status) can't inject SQL.
+  const setClauses: string[] = []
+  const params: Record<string, any> = { jobId }
+  for (const [key, val] of Object.entries(updates)) {
+    if (val === null) {
+      setClauses.push(`${key} = NULL`)
+    } else {
+      setClauses.push(`${key} = @set_${key}`)
+      params[`set_${key}`] = val
+    }
+  }
+  if (setClauses.length === 0) return
 
   await bq.query({
-    query: `UPDATE \`${PROJECT_ID}.${DATASET_ID}.scrape_jobs\` SET ${setClauses} WHERE id = @jobId`,
-    params: { jobId },
+    query: `UPDATE \`${PROJECT_ID}.${DATASET_ID}.scrape_jobs\` SET ${setClauses.join(', ')} WHERE id = @jobId`,
+    params,
   })
 }
 

@@ -36,8 +36,16 @@ export async function updateSession(request: NextRequest) {
     ])
     user = authResult.data?.user ?? null
   } catch {
-    // Supabase unreachable or slow — let the request through rather than 504
-    return supabaseResponse
+    // Supabase unreachable or slow — fail CLOSED. Public pages stay
+    // reachable, but protected routes return 503 instead of silently
+    // opening the whole app during a Supabase outage.
+    const path = request.nextUrl.pathname
+    const isPublic = path === '/' || path.startsWith('/login') || path.startsWith('/auth')
+    if (isPublic) return supabaseResponse
+    return new NextResponse('Authentication service temporarily unavailable. Please try again shortly.', {
+      status: 503,
+      headers: { 'Retry-After': '30' },
+    })
   }
 
   // Protect all routes except auth routes (like /login, /signup, /auth path, etc.)

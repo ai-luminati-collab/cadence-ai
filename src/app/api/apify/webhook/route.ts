@@ -23,6 +23,18 @@ export const maxDuration = 60
 export async function POST(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
+
+    // Shared-secret gate: this endpoint is exempt from session auth
+    // (Apify's servers carry no cookies), so the webhook URL must
+    // include the secret that /api/apify/trigger embedded in it.
+    const webhookSecret = process.env.APIFY_WEBHOOK_SECRET?.trim()
+    if (!webhookSecret) {
+      return NextResponse.json({ error: 'Webhook not configured (APIFY_WEBHOOK_SECRET missing)' }, { status: 503 })
+    }
+    if (searchParams.get('secret')?.trim() !== webhookSecret) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const brandId = searchParams.get('brandId')
     const platform = searchParams.get('platform') as SocialPlatform
     const handle = searchParams.get('handle')

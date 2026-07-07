@@ -14,6 +14,11 @@ export const config = {
      * - favicon.ico (favicon file)
      * Feel free to modify this pattern to include more paths.
      */
-    '/((?!_next/static|_next/image|favicon.ico|api/cron|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    /*
+     * api/cron and api/apify/webhook are exempt from session auth:
+     * they are called by Vercel Cron / Apify servers (no cookies) and
+     * protect themselves with shared secrets instead.
+     */
+    '/((?!_next/static|_next/image|favicon.ico|api/cron|api/apify/webhook|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
