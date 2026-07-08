@@ -14,7 +14,7 @@ import { useBrandOSSignals } from '@/hooks/useBrandOSSignals'
 import { BrandOSEvolution } from '@/components/BrandOSEvolution'
 import { CompetitorIntel } from '@/components/ui/CompetitorIntel'
 import { parseStreamedResponse } from '@/lib/streaming-fetch'
-import { asText } from '@/lib/strategy-normalizer'
+import { asRecord, asText, asTextArray } from '@/lib/strategy-normalizer'
 
 const PLATFORM_ICONS: Record<string, { icon: any, color: string }> = {
   "Meta (Instagram & Facebook)": { icon: Infinity, color: "text-blue-400" },
@@ -30,6 +30,163 @@ const PLATFORM_ICONS: Record<string, { icon: any, color: string }> = {
   "Discord": { icon: Users, color: "text-[#5865F2]" },
   "Reddit": { icon: MessageCircle, color: "text-[#FF4500]" },
   "default": { icon: Globe, color: "text-[var(--color-text-muted)]" }
+}
+
+type PlatformPlaybookView = {
+  role: string
+  mechanics: string
+  toneModifier: string
+  cadence: string
+}
+
+type BucketView = {
+  id: string
+  name: string
+  description: string
+  pillarId: string
+  suggestedMinPerMonth: number
+  suggestedMaxPerMonth: number
+  formats: string[]
+}
+
+type PillarView = {
+  id: string
+  name: string
+  description: string
+  buckets: BucketView[]
+}
+
+type VisualGuardrailView = {
+  id: string
+  type: 'do' | 'dont'
+  rule: string
+  source: 'ai' | 'user'
+}
+
+function asFiniteNumber(value: unknown, fallback = 0): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return fallback
+}
+
+function asOptionalNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return undefined
+}
+
+function normalizeAssets(value: unknown): BrandAsset[] {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap((asset, index) => {
+    const source = asRecord(asset)
+    const url = asText(source.url).trim()
+    if (!url) return []
+
+    const rawType = asText(source.type).trim()
+    const type = ['image', 'pdf', 'doc', 'ppt', 'webp', 'other'].includes(rawType) ? rawType : 'other'
+    const size = asOptionalNumber(source.size)
+
+    return [{
+      id: asText(source.id).trim() || `asset-${index + 1}`,
+      name: asText(source.name).trim() || `Asset ${index + 1}`,
+      type: type as BrandAsset['type'],
+      url,
+      thumbnailUrl: asText(source.thumbnailUrl).trim() || undefined,
+      size,
+      addedAt: asText(source.addedAt).trim() || new Date().toISOString(),
+      linkedProductName: asText(source.linkedProductName).trim() || undefined,
+    }]
+  })
+}
+
+function normalizeVisualGuardrails(value: unknown): VisualGuardrailView[] {
+  if (!Array.isArray(value)) return []
+
+  return value.map((guardrail, index) => {
+    const source = asRecord(guardrail)
+    const type = asText(source.type) === 'dont' ? 'dont' : 'do'
+    const origin = asText(source.source) === 'ai' ? 'ai' : 'user'
+    return {
+      id: asText(source.id).trim() || `visual-guardrail-${index + 1}`,
+      type,
+      rule: asText(source.rule),
+      source: origin,
+    }
+  })
+}
+
+function normalizeProductNames(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+
+  return value.map((product) => {
+    const record = asRecord(product)
+    return asText(record.name || product).trim()
+  }).filter(Boolean)
+}
+
+function normalizePlatformPlaybooks(value: unknown): Record<string, PlatformPlaybookView> {
+  return Object.fromEntries(
+    Object.entries(asRecord(value))
+      .map(([platform, playbook]) => {
+        const record = asRecord(playbook)
+        return [platform, {
+          role: asText(record.role),
+          mechanics: asText(record.mechanics),
+          toneModifier: asText(record.toneModifier),
+          cadence: asText(record.cadence),
+        }]
+      })
+      .filter(([, playbook]) => Object.values(playbook).some(Boolean))
+  )
+}
+
+function normalizePillarsForPlatform(value: unknown, platform: string): PillarView[] {
+  const rawPillars = asRecord(value)[platform]
+  if (!Array.isArray(rawPillars)) return []
+
+  return rawPillars.map((pillar, pillarIndex) => {
+    const source = asRecord(pillar)
+    const id = asText(source.id).trim() || `pillar-${pillarIndex + 1}`
+    const rawBuckets = Array.isArray(source.buckets) ? source.buckets : []
+
+    return {
+      id,
+      name: asText(source.name).trim() || `Pillar ${pillarIndex + 1}`,
+      description: asText(source.description),
+      buckets: rawBuckets.map((bucket, bucketIndex) => {
+        const bucketSource = asRecord(bucket)
+        const min = asFiniteNumber(bucketSource.suggestedMinPerMonth)
+        return {
+          id: asText(bucketSource.id).trim() || `bucket-${bucketIndex + 1}`,
+          name: asText(bucketSource.name).trim() || `Bucket ${bucketIndex + 1}`,
+          description: asText(bucketSource.description),
+          pillarId: asText(bucketSource.pillarId).trim() || id,
+          suggestedMinPerMonth: min,
+          suggestedMaxPerMonth: asFiniteNumber(bucketSource.suggestedMaxPerMonth, min),
+          formats: asTextArray(bucketSource.formats),
+        }
+      }),
+    }
+  })
+}
+
+function normalizeToneFingerprint(value: unknown) {
+  const source = asRecord(value)
+  return {
+    avgSentenceLength: asFiniteNumber(source.avgSentenceLength),
+    emojiFrequency: asFiniteNumber(source.emojiFrequency),
+    hinglishRatio: asFiniteNumber(source.hinglishRatio),
+    topWords: asTextArray(source.topWords),
+    punchiness: asFiniteNumber(source.punchiness),
+    sampleSize: asFiniteNumber(source.sampleSize),
+  }
 }
 
 /* ── Tactical DNA Card (Expandable + Editable) ── */
@@ -275,6 +432,21 @@ export default function StrategyPage() {
   const activeBrand = activeBrandId ? brands[activeBrandId] : null
   const strategy = activeBrand?.strategy
   const brandInfo = activeBrand?.brandInfo
+  const brandName = asText(brandInfo?.name).trim() || 'Brand'
+  const pendingInsights = asTextArray(brandInfo?.pendingInsights)
+  const aiKnowledgeBase = asTextArray(brandInfo?.aiKnowledgeBase)
+  const primaryGoals = asTextArray(brandInfo?.primaryGoals)
+  const tone = asTextArray(brandInfo?.tone)
+  const platforms = asTextArray(brandInfo?.platforms)
+  const brandReferences = normalizeAssets(brandInfo?.brandReferences)
+  const productImages = normalizeAssets(brandInfo?.productImages)
+  const brandLogos = normalizeAssets(brandInfo?.brandLogos)
+  const fontSpecimenImages = normalizeAssets(brandInfo?.fontSpecimenImages)
+  const visualGuardrails = normalizeVisualGuardrails(brandInfo?.visualGuardrails)
+  const productNames = normalizeProductNames(brandInfo?.productCatalog)
+  const toneFingerprint = activeBrand?.toneFingerprint ? normalizeToneFingerprint(activeBrand.toneFingerprint) : null
+  const platformPlaybooks = normalizePlatformPlaybooks(strategy?.platformPlaybooks)
+  const platformPlaybookEntries = Object.entries(platformPlaybooks)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -346,7 +518,7 @@ export default function StrategyPage() {
     setIsExporting(true)
     try {
       const { exportToPDF } = await import('@/lib/exportPdf')
-      await exportToPDF('strategy-export-node', `${brandInfo?.name || 'Brand'}_OS.pdf`)
+      await exportToPDF('strategy-export-node', `${brandName}_OS.pdf`)
     } catch (err: any) {
       console.error('Export failed:', err)
       setError('PDF export failed. Please try again.')
@@ -406,7 +578,7 @@ export default function StrategyPage() {
       // Strip base64 from brandInfo before sending
       const lightBrandInfo = {
         ...brandInfo,
-        brandReferences: brandInfo.brandReferences?.map(r => ({ ...r, url: '' })),
+        brandReferences: brandReferences.map(r => ({ ...r, url: '' })),
         brandAssets: [],
       }
 
@@ -525,7 +697,7 @@ export default function StrategyPage() {
               <span className="text-[10px] font-bold text-[var(--color-text-muted)] uppercase tracking-widest">Updated {new Date(strategy.lastRefreshed).toLocaleDateString()}</span>
             )}
           </div>
-          <h1 className="text-4xl font-black text-[var(--color-text-primary)] tracking-tight">{brandInfo.name} <span className="text-blue-500">Brand OS</span></h1>
+          <h1 className="text-4xl font-black text-[var(--color-text-primary)] tracking-tight">{brandName} <span className="text-blue-500">Brand OS</span></h1>
         </div>
         <div className="flex gap-3">
           <button 
@@ -608,9 +780,9 @@ export default function StrategyPage() {
             <h2 className="text-xs font-black text-[var(--color-text-muted)] uppercase tracking-widest">Training Buffer (Pending AI Insights)</h2>
           </div>
           <div className="bg-gradient-to-br from-indigo-50/50 to-purple-50/50 border border-indigo-100 rounded-3xl p-6 min-h-[160px]">
-            {brandInfo.pendingInsights && brandInfo.pendingInsights.length > 0 ? (
+            {pendingInsights.length > 0 ? (
                <div className="space-y-3">
-                  {brandInfo.pendingInsights.map((insight, idx) => (
+                  {pendingInsights.map((insight, idx) => (
                     <div key={idx} className="bg-[var(--color-bg-base)] p-4 rounded-xl shadow-sm border border-[var(--color-border-default)] flex items-start gap-4 group animate-in slide-in-from-left-2 transition-all hover:scale-[1.01]">
                        <div className="flex-1">
                           <p className="text-[11px] font-bold text-[var(--color-text-primary)] leading-relaxed italic">"{insight}"</p>
@@ -649,9 +821,9 @@ export default function StrategyPage() {
              <h2 className="text-xs font-black text-[var(--color-text-muted)] uppercase tracking-widest">Active Brand DNA (Knowledge Base)</h2>
           </div>
           <div className="bg-emerald-50/50 border border-emerald-100 rounded-3xl p-6 min-h-[160px]">
-             {brandInfo.aiKnowledgeBase && brandInfo.aiKnowledgeBase.length > 0 ? (
+             {aiKnowledgeBase.length > 0 ? (
                 <div className="space-y-2">
-                   {brandInfo.aiKnowledgeBase.map((fact, idx) => (
+                   {aiKnowledgeBase.map((fact, idx) => (
                       <div key={idx} className="flex items-start gap-2.5 px-3 py-2 bg-[var(--color-bg-surface)] rounded-lg border border-emerald-200/50">
                          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0" />
                          <p className="text-[10px] font-medium text-[var(--color-text-secondary)] leading-tight">{fact}</p>
@@ -690,7 +862,7 @@ export default function StrategyPage() {
                      }
                    } catch (e) { alert('Audit failed.') } finally { setIsRefreshing(false) }
                 }}
-                disabled={!brandInfo.aiKnowledgeBase?.length || isRefreshing}
+                disabled={aiKnowledgeBase.length === 0 || isRefreshing}
                 className="flex-1 py-2 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest bg-amber-50 text-amber-600 border border-amber-200 hover:bg-amber-100 transition-all disabled:opacity-40"
               >
                 🔍 Audit for Drift
@@ -718,34 +890,34 @@ export default function StrategyPage() {
          </div>
 
          {/* Tone Fingerprint Display */}
-         {activeBrand?.toneFingerprint && (
+         {toneFingerprint && (
             <div className="space-y-4 mt-6">
               <div className="flex items-center gap-2 mb-2">
                  <Brain className="w-4 h-4 text-purple-600" />
                  <h2 className="text-xs font-black text-[var(--color-text-muted)] uppercase tracking-widest">Voice DNA Fingerprint</h2>
-                 <span className="text-[8px] text-[var(--color-text-muted)] font-medium">({activeBrand?.toneFingerprint?.sampleSize || 0} drafts analyzed)</span>
+                 <span className="text-[8px] text-[var(--color-text-muted)] font-medium">({toneFingerprint.sampleSize} drafts analyzed)</span>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                  <div className="bg-purple-50 border border-purple-100 rounded-2xl p-4 text-center">
-                    <p className="text-2xl font-black text-purple-600">{activeBrand?.toneFingerprint?.punchiness ?? 0}<span className="text-sm text-purple-300">/10</span></p>
+                    <p className="text-2xl font-black text-purple-600">{toneFingerprint.punchiness}<span className="text-sm text-purple-300">/10</span></p>
                     <p className="text-[9px] font-black text-purple-400 uppercase tracking-widest mt-1">Punchiness</p>
                  </div>
                  <div className="bg-sky-50 border border-sky-100 rounded-2xl p-4 text-center">
-                    <p className="text-2xl font-black text-sky-600">{(activeBrand?.toneFingerprint?.avgSentenceLength ?? 0).toFixed(0)}</p>
+                    <p className="text-2xl font-black text-sky-600">{toneFingerprint.avgSentenceLength.toFixed(0)}</p>
                     <p className="text-[9px] font-black text-sky-400 uppercase tracking-widest mt-1">Avg Words/Sentence</p>
                  </div>
                  <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 text-center">
-                    <p className="text-2xl font-black text-amber-600">{((activeBrand?.toneFingerprint?.hinglishRatio ?? 0) * 100).toFixed(0)}%</p>
+                    <p className="text-2xl font-black text-amber-600">{(toneFingerprint.hinglishRatio * 100).toFixed(0)}%</p>
                     <p className="text-[9px] font-black text-amber-400 uppercase tracking-widest mt-1">Hinglish Ratio</p>
                  </div>
                  <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 text-center">
-                    <p className="text-2xl font-black text-emerald-600">{(activeBrand?.toneFingerprint?.emojiFrequency ?? 0).toFixed(1)}</p>
+                    <p className="text-2xl font-black text-emerald-600">{toneFingerprint.emojiFrequency.toFixed(1)}</p>
                     <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mt-1">Emojis/100 Words</p>
                  </div>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                  <span className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Signature Words:</span>
-                 {(activeBrand?.toneFingerprint?.topWords || []).map((w, i) => (
+                 {toneFingerprint.topWords.map((w, i) => (
                     <span key={i} className="text-[10px] font-bold text-purple-500 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-100">{w}</span>
                  ))}
               </div>
@@ -766,11 +938,11 @@ export default function StrategyPage() {
               title="Main Goal"
               iconBg="bg-pink-50"
               icon={<CheckCircle2 className="w-4 h-4 text-pink-500" />}
-              value={brandInfo.primaryGoals?.join(', ') || 'Growth'}
+              value={primaryGoals.join(', ') || 'Growth'}
               fieldKey="primaryGoals"
               isArray={true}
               onSave={(val) => {
-                const oldVal = brandInfo.primaryGoals?.join(', ') || ''
+                const oldVal = primaryGoals.join(', ')
                 setBrandInfo({ ...brandInfo, primaryGoals: val.split(',').map((s: string) => s.trim()).filter(Boolean) })
                 signals.logProfileFieldChange('primaryGoals', `Goals changed from "${oldVal}" to "${val}"`)
               }}
@@ -781,17 +953,17 @@ export default function StrategyPage() {
               title="Visual Vibe"
               iconBg="bg-indigo-50"
               icon={<Palette className="w-4 h-4 text-indigo-500" />}
-              value={brandInfo.tone?.join(', ') || 'Modern'}
+              value={tone.join(', ') || 'Modern'}
               fieldKey="tone"
               isArray={true}
               extraContent={
                 <div className="flex items-center gap-2 mt-2">
-                  <div className="w-6 h-6 rounded-full border border-[var(--color-border-default)]" style={{ backgroundColor: brandInfo.primaryColorHex }} />
-                  <div className="w-6 h-6 rounded-full border border-[var(--color-border-default)]" style={{ backgroundColor: brandInfo.secondaryColorHex }} />
+                  <div className="w-6 h-6 rounded-full border border-[var(--color-border-default)]" style={{ backgroundColor: asText(brandInfo.primaryColorHex) || undefined }} />
+                  <div className="w-6 h-6 rounded-full border border-[var(--color-border-default)]" style={{ backgroundColor: asText(brandInfo.secondaryColorHex) || undefined }} />
                 </div>
               }
               onSave={(val) => {
-                const oldVal = brandInfo.tone?.join(', ') || ''
+                const oldVal = tone.join(', ')
                 setBrandInfo({ ...brandInfo, tone: val.split(',').map((s: string) => s.trim()).filter(Boolean) })
                 signals.logProfileFieldChange('tone', `Tone changed from "${oldVal}" to "${val}"`)
               }}
@@ -802,11 +974,11 @@ export default function StrategyPage() {
               title="Target Platforms"
               iconBg="bg-emerald-50"
               icon={<Globe className="w-4 h-4 text-emerald-500" />}
-              value={brandInfo.platforms?.join(', ') || ''}
+              value={platforms.join(', ')}
               fieldKey="platforms"
               isArray={true}
               onSave={(val) => {
-                const oldVal = brandInfo.platforms?.join(', ') || ''
+                const oldVal = platforms.join(', ')
                 setBrandInfo({ ...brandInfo, platforms: val.split(',').map((s: string) => s.trim()).filter(Boolean) })
                 signals.logProfileFieldChange('platforms', `Platforms changed from "${oldVal}" to "${val}"`)
               }}
@@ -904,9 +1076,13 @@ export default function StrategyPage() {
         <>
         <h2 className="text-xs font-black text-blue-500 uppercase tracking-widest mb-4">Social Media Playbooks</h2>
 
-        {strategy.platformPlaybooks && Object.keys(strategy.platformPlaybooks).length > 0 ? (
+        {platformPlaybookEntries.length > 0 ? (
            <div className="grid grid-cols-1 gap-6">
-              {Object.entries(strategy.platformPlaybooks).map(([platform, playbook]) => (
+              {platformPlaybookEntries.map(([platform, playbook]) => {
+                const pillars = normalizePillarsForPlatform(strategy.contentPillars, platform)
+                const bucketCount = pillars.reduce((sum, pillar) => sum + pillar.buckets.length, 0)
+
+                return (
                 <button 
                   key={platform} 
                   onClick={() => setSelectedPlatform(platform)}
@@ -921,9 +1097,9 @@ export default function StrategyPage() {
                          })()}
                       </div>
                       <h3 className="text-lg font-black text-[var(--color-text-primary)] uppercase tracking-tight flex-1">{platform}</h3>
-                      {Array.isArray(strategy.contentPillars?.[platform]) && strategy.contentPillars[platform].length > 0 && (
+                      {pillars.length > 0 && (
                         <span className="text-[10px] font-black text-[var(--color-accent-400)] bg-[var(--color-accent-900)]/20 px-3 py-1 rounded-full uppercase tracking-widest">
-                          {strategy.contentPillars[platform].length} Pillars · {strategy.contentPillars[platform].reduce((s: number, p: any) => s + (Array.isArray(p.buckets) ? p.buckets.length : 0), 0)} Buckets
+                          {pillars.length} Pillars · {bucketCount} Buckets
                         </span>
                       )}
                       <ChevronDown className="w-4 h-4 text-[var(--color-text-muted)] group-hover:text-[var(--color-accent-400)] transition-colors" />
@@ -931,23 +1107,23 @@ export default function StrategyPage() {
                    <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
                          <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest mb-1 block">Strategic Role</label>
-                         <p className="text-sm font-bold text-[var(--color-text-secondary)] leading-snug">{playbook?.role || '—'}</p>
+                         <p className="text-sm font-bold text-[var(--color-text-secondary)] leading-snug">{playbook.role || '—'}</p>
                       </div>
                       <div>
                          <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest mb-1 block">Format Mechanics</label>
-                         <p className="text-sm font-bold text-[var(--color-text-secondary)] leading-snug">{playbook?.mechanics || '—'}</p>
+                         <p className="text-sm font-bold text-[var(--color-text-secondary)] leading-snug">{playbook.mechanics || '—'}</p>
                       </div>
                       <div>
                          <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest mb-1 block">Tone Modifier</label>
-                         <p className="text-sm font-bold text-[var(--color-text-secondary)] leading-snug">{playbook?.toneModifier || '—'}</p>
+                         <p className="text-sm font-bold text-[var(--color-text-secondary)] leading-snug">{playbook.toneModifier || '—'}</p>
                       </div>
                       <div>
                          <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest mb-1 block">Cadence</label>
-                         <p className="text-sm font-bold text-[var(--color-text-secondary)] leading-snug">{playbook?.cadence || '—'}</p>
+                         <p className="text-sm font-bold text-[var(--color-text-secondary)] leading-snug">{playbook.cadence || '—'}</p>
                       </div>
                    </div>
                 </button>
-              ))}
+              )})}
            </div>
         ) : (
            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -958,12 +1134,12 @@ export default function StrategyPage() {
         )}
 
         {/* ═══ PLATFORM PILLAR/BUCKET POPUP MODAL ═══ */}
-        {selectedPlatform && strategy.platformPlaybooks?.[selectedPlatform] && (() => {
-          const playbook = strategy.platformPlaybooks[selectedPlatform]
-          const pillars = Array.isArray(strategy.contentPillars?.[selectedPlatform]) ? strategy.contentPillars[selectedPlatform] : []
-          const totalBuckets = pillars.reduce((s: number, p: any) => s + (Array.isArray(p.buckets) ? p.buckets.length : 0), 0)
-          const totalMinPosts = pillars.reduce((s: number, p: any) => s + (Array.isArray(p.buckets) ? p.buckets : []).reduce((bs: number, b: any) => bs + (b.suggestedMinPerMonth || 0), 0), 0)
-          const totalMaxPosts = pillars.reduce((s: number, p: any) => s + (Array.isArray(p.buckets) ? p.buckets : []).reduce((bs: number, b: any) => bs + (b.suggestedMaxPerMonth || 0), 0), 0)
+        {selectedPlatform && platformPlaybooks[selectedPlatform] && (() => {
+          const playbook = platformPlaybooks[selectedPlatform]
+          const pillars = normalizePillarsForPlatform(strategy.contentPillars, selectedPlatform)
+          const totalBuckets = pillars.reduce((sum, pillar) => sum + pillar.buckets.length, 0)
+          const totalMinPosts = pillars.reduce((sum, pillar) => sum + pillar.buckets.reduce((bucketSum, bucket) => bucketSum + bucket.suggestedMinPerMonth, 0), 0)
+          const totalMaxPosts = pillars.reduce((sum, pillar) => sum + pillar.buckets.reduce((bucketSum, bucket) => bucketSum + bucket.suggestedMaxPerMonth, 0), 0)
           const platConfig = PLATFORM_ICONS[selectedPlatform] || PLATFORM_ICONS.default
           const PlatIcon = platConfig.icon
 
@@ -1058,11 +1234,11 @@ export default function StrategyPage() {
                                 </div>
                                 <span className="text-[9px] text-[var(--color-text-muted)] font-bold">/mo</span>
                               </div>
-                              {bucket.formats && (<div className="flex gap-1 shrink-0">{bucket.formats.map(f => (<span key={f} className="text-[8px] font-bold text-[var(--color-text-muted)] bg-[var(--color-bg-hover)] px-1.5 py-0.5 rounded">{f}</span>))}</div>)}
+                          {bucket.formats.length > 0 && (<div className="flex gap-1 shrink-0">{bucket.formats.map(f => (<span key={f} className="text-[8px] font-bold text-[var(--color-text-muted)] bg-[var(--color-bg-hover)] px-1.5 py-0.5 rounded">{f}</span>))}</div>)}
                               <button onClick={() => { const u = [...pillars]; u[pIdx] = { ...u[pIdx], buckets: u[pIdx].buckets.filter((_, i) => i !== bIdx) }; setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: u } }) }} className="p-1 rounded text-[var(--color-text-muted)] hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-3 h-3" /></button>
                             </div>
                           ))}
-                          <button onClick={() => { const u = [...pillars]; u[pIdx] = { ...u[pIdx], buckets: [...u[pIdx].buckets, { id: `bucket-${Date.now()}`, name: 'New Bucket', description: 'Describe this content bucket...', pillarId: pillar.id, suggestedMinPerMonth: 1, suggestedMaxPerMonth: 3 }] }; setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: u } }) }} className="w-full px-5 py-2.5 text-[10px] font-bold text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/5 transition-all flex items-center gap-1.5 justify-center"><Plus className="w-3 h-3" /> Add Bucket</button>
+                          <button onClick={() => { const u = [...pillars]; u[pIdx] = { ...u[pIdx], buckets: [...u[pIdx].buckets, { id: `bucket-${Date.now()}`, name: 'New Bucket', description: 'Describe this content bucket...', pillarId: pillar.id, suggestedMinPerMonth: 1, suggestedMaxPerMonth: 3, formats: [] }] }; setStrategy({ ...strategy, contentPillars: { ...strategy.contentPillars, [selectedPlatform]: u } }) }} className="w-full px-5 py-2.5 text-[10px] font-bold text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/5 transition-all flex items-center gap-1.5 justify-center"><Plus className="w-3 h-3" /> Add Bucket</button>
                         </div>
                       </div>
                     ))
@@ -1089,7 +1265,7 @@ export default function StrategyPage() {
               subtitle="Upload reference images, PPTs, PDFs, moodboards. AI will use these as creative direction."
               icon={<Paperclip className="w-4 h-4 text-amber-500" />}
               iconColor="bg-amber-50"
-              assets={brandInfo.brandReferences || []}
+              assets={brandReferences}
               acceptTypes=".png,.jpg,.jpeg,.webp,.pdf,.ppt,.pptx,.doc,.docx"
               onUpload={(files) => handleMediaUpload(files, 'brandReferences')}
               onRemove={(id) => handleMediaRemove(id, 'brandReferences')}
@@ -1103,11 +1279,11 @@ export default function StrategyPage() {
               subtitle="Upload product images. These will be matched to your product catalog for AI-generated posts."
               icon={<ImagePlus className="w-4 h-4 text-pink-500" />}
               iconColor="bg-pink-50"
-              assets={brandInfo.productImages || []}
+              assets={productImages}
               acceptTypes=".png,.jpg,.jpeg,.webp"
               onUpload={(files) => handleMediaUpload(files, 'productImages')}
               onRemove={(id) => handleMediaRemove(id, 'productImages')}
-              linkedProducts={brandInfo.productCatalog?.map(p => p.name)}
+              linkedProducts={productNames}
             />
           </div>
 
@@ -1118,7 +1294,7 @@ export default function StrategyPage() {
               subtitle="Upload logo files (PNG, SVG, WebP). AI will reference these for brand consistency."
               icon={<FolderOpen className="w-4 h-4 text-blue-500" />}
               iconColor="bg-blue-50"
-              assets={brandInfo.brandLogos || []}
+              assets={brandLogos}
               acceptTypes=".png,.jpg,.jpeg,.webp,.svg"
               onUpload={(files) => handleMediaUpload(files, 'brandLogos')}
               onRemove={(id) => handleMediaRemove(id, 'brandLogos')}
@@ -1140,7 +1316,7 @@ export default function StrategyPage() {
                 <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Heading Font</label>
                 <input 
                   type="text"
-                  value={brandInfo.headingFont || ''}
+                  value={asText(brandInfo.headingFont)}
                   onChange={(e) => setBrandInfo({ ...brandInfo, headingFont: e.target.value })}
                   placeholder="e.g. Playfair Display"
                   className="w-full bg-[var(--color-bg-input)] border border-[var(--color-border-default)] rounded-xl px-3 py-2.5 text-sm font-bold text-[var(--color-text-primary)] outline-none focus:border-purple-400 transition-colors"
@@ -1150,7 +1326,7 @@ export default function StrategyPage() {
                 <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Body Font</label>
                 <input 
                   type="text"
-                  value={brandInfo.bodyFont || ''}
+                  value={asText(brandInfo.bodyFont)}
                   onChange={(e) => setBrandInfo({ ...brandInfo, bodyFont: e.target.value })}
                   placeholder="e.g. Inter, Open Sans"
                   className="w-full bg-[var(--color-bg-input)] border border-[var(--color-border-default)] rounded-xl px-3 py-2.5 text-sm font-bold text-[var(--color-text-primary)] outline-none focus:border-purple-400 transition-colors"
@@ -1163,7 +1339,7 @@ export default function StrategyPage() {
               subtitle="Upload screenshots showing your fonts in use. AI uses these as visual reference."
               icon={<Type className="w-4 h-4 text-purple-400" />}
               iconColor="bg-purple-50"
-              assets={brandInfo.fontSpecimenImages || []}
+              assets={fontSpecimenImages}
               acceptTypes=".png,.jpg,.jpeg,.webp"
               onUpload={(files) => handleMediaUpload(files, 'fontSpecimenImages')}
               onRemove={(id) => handleMediaRemove(id, 'fontSpecimenImages')}
@@ -1193,7 +1369,7 @@ export default function StrategyPage() {
                   rule: '',
                   source: 'user'
                 }
-                const existing = brandInfo.visualGuardrails || []
+                const existing = visualGuardrails
                 setBrandInfo({ ...brandInfo, visualGuardrails: [...existing, newRule] })
               }}
               className="px-3 py-2 rounded-xl border border-[var(--color-border-default)] text-xs font-bold text-[var(--color-text-secondary)] hover:border-emerald-500 hover:text-emerald-400 transition-all flex items-center gap-1.5"
@@ -1202,16 +1378,16 @@ export default function StrategyPage() {
             </button>
             <button
               onClick={async () => {
-                if (!brandInfo.brandReferences || brandInfo.brandReferences.length === 0) {
+                if (brandReferences.length === 0) {
                   alert('Upload brand references first (in the Media Library above or during Onboarding)')
                   return
                 }
                 setIsAnalyzingRefs(true)
                 try {
                   const { analyzeReferenceImages } = await import('@/actions/analyzeRefs')
-                  const res = await analyzeReferenceImages(brandInfo.brandReferences, brandInfo.name)
+                  const res = await analyzeReferenceImages(brandReferences, brandName)
                   if (res.success && res.data) {
-                    const existing = brandInfo.visualGuardrails || []
+                    const existing = visualGuardrails
                     const userRules = existing.filter(g => g.source === 'user')
                     setBrandInfo({ ...brandInfo, visualGuardrails: [...res.data, ...userRules] })
                   } else {
@@ -1232,14 +1408,14 @@ export default function StrategyPage() {
           </div>
         </div>
 
-        {(brandInfo.visualGuardrails && brandInfo.visualGuardrails.length > 0) ? (
+        {visualGuardrails.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {brandInfo.visualGuardrails.map((g, idx) => (
+            {visualGuardrails.map((g, idx) => (
               <div key={g.id} className={`p-4 rounded-xl border-2 transition-all group ${g.type === 'do' ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
                 <div className="flex items-start gap-3">
                   <button
                     onClick={() => {
-                      const updated = [...(brandInfo.visualGuardrails || [])]
+                      const updated = [...visualGuardrails]
                       updated[idx] = { ...updated[idx], type: updated[idx].type === 'do' ? 'dont' : 'do' }
                       setBrandInfo({ ...brandInfo, visualGuardrails: updated })
                     }}
@@ -1250,7 +1426,7 @@ export default function StrategyPage() {
                   <input
                     value={g.rule}
                     onChange={(e) => {
-                      const updated = [...(brandInfo.visualGuardrails || [])]
+                      const updated = [...visualGuardrails]
                       updated[idx] = { ...updated[idx], rule: e.target.value, source: 'user' }
                       setBrandInfo({ ...brandInfo, visualGuardrails: updated })
                     }}
@@ -1259,7 +1435,7 @@ export default function StrategyPage() {
                   />
                   <button
                     onClick={() => {
-                      const updated = (brandInfo.visualGuardrails || []).filter((_, i) => i !== idx)
+                      const updated = visualGuardrails.filter((_, i) => i !== idx)
                       setBrandInfo({ ...brandInfo, visualGuardrails: updated })
                     }}
                     className="shrink-0 p-1 rounded-lg text-[var(--color-text-muted)] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"

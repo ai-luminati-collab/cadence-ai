@@ -1,22 +1,39 @@
 import { GoogleGenAI } from '@google/genai'
 
 /**
- * Deep Research Client — Google Interactions API
+ * Deep Research Client — Google Interactions API (post-May-2026 schema)
  *
  * Launches a comprehensive, multi-step research agent that browses the web,
  * reads pages, and synthesizes a full brand intelligence report.
  * Takes 2-10 minutes. Must run in background mode.
  *
- * Tries Vertex AI endpoint first (pay-as-you-go, higher quotas),
- * falls back to AI Studio key if Vertex isn't configured.
+ * Requires @google/genai >= 2.0.0 — the May 2026 API change replaced the
+ * `outputs` array with typed `steps` and rejects the legacy request schema.
  */
 
 const AGENT_ID = 'deep-research-max-preview-04-2026'
+
+// Interaction statuses that mean the run is over without a report
+const TERMINAL_FAILURE_STATUSES = ['failed', 'cancelled', 'incomplete', 'budget_exceeded', 'requires_action']
+const DEEP_RESEARCH_AGENT_CONFIG = {
+  type: 'deep-research',
+  collaborative_planning: false,
+} as const
 
 function createClient(): GoogleGenAI {
   const apiKey = process.env.GOOGLE_API_KEY
   if (!apiKey) throw new Error('Missing GOOGLE_API_KEY')
   return new GoogleGenAI({ apiKey })
+}
+
+function formatErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return 'Unknown error'
+  }
 }
 
 /** Start a deep research interaction. Returns immediately with an ID to poll. */
@@ -31,24 +48,26 @@ export async function startDeepResearch(query: string): Promise<{
     console.log('🔬 Starting Deep Research via Interactions API...')
     console.log(`📝 Query length: ${query.length} chars`)
 
-    const interaction = await (client as any).interactions.create({
+    const interaction = await client.interactions.create({
       agent: AGENT_ID,
       background: true,
       input: query,
+      agent_config: DEEP_RESEARCH_AGENT_CONFIG,
     })
 
-    const interactionId = interaction?.id
+    const interactionId = interaction.id
     console.log(`✅ Deep Research started. ID: ${interactionId}`)
-    console.log(`   Status: ${interaction?.status}`)
+    console.log(`   Status: ${interaction.status}`)
 
     if (!interactionId) {
       return { success: false, error: 'No interaction ID returned' }
     }
 
     return { success: true, interactionId }
-  } catch (error: any) {
-    console.error('Failed to start Deep Research:', error?.message || error)
-    return { success: false, error: `Deep Research init failed: ${error?.message || 'Unknown error'}` }
+  } catch (error) {
+    const message = formatErrorMessage(error)
+    console.error('Failed to start Deep Research:', message)
+    return { success: false, error: `Deep Research init failed: ${message}` }
   }
 }
 
@@ -60,51 +79,57 @@ export async function checkDeepResearchStatus(interactionId: string): Promise<{
 }> {
   try {
     const client = createClient()
-    const result = await (client as any).interactions.get(interactionId)
+    const interaction = await client.interactions.get(interactionId)
 
-    const status = result?.status?.toLowerCase()
+    if (interaction.status === 'completed') {
+      // SDK-computed concatenation of the last model output
+      let report = interaction.output_text ?? ''
 
-    if (status === 'completed' || status === 'done') {
-      // Extract the report text from the response
-      let report = ''
-      
-      if (result?.outputs && Array.isArray(result.outputs)) {
-        // outputs is an array of messages; last one is the final report
-        const last = result.outputs[result.outputs.length - 1]
-        report = last?.text || last?.content?.parts?.[0]?.text || ''
-        if (!report && last?.content) {
-          report = typeof last.content === 'string' ? last.content : JSON.stringify(last.content)
+      // Fallback: walk steps from the end for the last model_output with text
+      if (!report && interaction.steps) {
+        for (let i = interaction.steps.length - 1; i >= 0; i--) {
+          const step = interaction.steps[i]
+          if (step.type === 'model_output' && step.content) {
+            report = step.content
+              .map((c) => (c.type === 'text' ? c.text : ''))
+              .filter(Boolean)
+              .join('\n')
+            if (report) break
+          }
         }
-      } else if (result?.output) {
-        report = typeof result.output === 'string' ? result.output : (result.output?.text || JSON.stringify(result.output))
-      } else if (result?.text) {
-        report = typeof result.text === 'string' ? result.text : ''
       }
 
-      // Fallback: stringify the whole result if we couldn't extract text
-      if (!report && result) {
-        const full = JSON.stringify(result)
-        // Try to find any text content in the full response
-        const textMatch = full.match(/"text"\s*:\s*"([^"]{100,})"/)?.[1]
-        report = textMatch || full
+      if (!report) {
+        console.error('❌ Deep Research completed but returned no text output')
+        return { status: 'failed', error: 'Research completed without a report' }
       }
-      
+
       console.log(`✅ Deep Research complete. Report length: ${report.length} chars`)
       return { status: 'completed', report }
     }
 
-    if (status === 'failed' || status === 'error') {
-      const errorMsg = result?.error?.message || result?.error || 'Research failed'
+    if (TERMINAL_FAILURE_STATUSES.includes(interaction.status)) {
+      // Surface the most recent step-level error, if the API reported one
+      const stepError = interaction.steps
+        ?.map((step) => ('error' in step ? step.error?.message : undefined))
+        .filter(Boolean)
+        .pop()
+      const errorMsg = stepError || `Research ended with status: ${interaction.status}`
       console.error(`❌ Deep Research failed: ${errorMsg}`)
-      return { status: 'failed', error: String(errorMsg) }
+      return { status: 'failed', error: errorMsg }
     }
 
-    // Still in progress
-    console.log(`⏳ Deep Research still in progress... (status: ${result?.status})`)
+    // in_progress (or an unrecognized transient status)
+    console.log(`⏳ Deep Research still in progress... (status: ${interaction.status})`)
     return { status: 'in_progress' }
-  } catch (error: any) {
-    console.error('Status check error:', error?.message)
-    // Don't immediately mark as failed — could be transient
+  } catch (error) {
+    const message = formatErrorMessage(error)
+    console.error('Status check error:', message)
+    if (/\b(400|401|403|404)\b|invalid|not found|permission|auth/i.test(message)) {
+      return { status: 'failed', error: `Deep Research status check failed: ${message}` }
+    }
+
+    // Don't immediately mark transient network/server errors as failed.
     return { status: 'in_progress' }
   }
 }
