@@ -618,6 +618,8 @@ export default function OnboardingPage() {
       const MAX_RETRIES = 2
       let lastErr: string | null = null
 
+      try { await createClient().auth.getSession() } catch {}
+
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         if (attempt > 0) {
           // Exponential backoff: ~3s, ~6s

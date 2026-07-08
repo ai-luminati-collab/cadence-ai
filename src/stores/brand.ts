@@ -1,6 +1,7 @@
 // src/stores/brand.ts
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { normalizeStrategy, normalizeSocialStrategy } from '@/lib/strategy-normalizer'
 
 export interface Strategy {
   targetAudience: string
@@ -578,7 +579,7 @@ export const useBrandStore = create<BrandState>()(
         return {
           brands: {
             ...state.brands,
-            [state.activeBrandId]: { ...state.brands[state.activeBrandId], strategy }
+            [state.activeBrandId]: { ...state.brands[state.activeBrandId], strategy: normalizeStrategy(strategy) as unknown as Strategy }
           }
         }
       }),
@@ -586,12 +587,16 @@ export const useBrandStore = create<BrandState>()(
       mergeSocialStrategy: (socialData: Partial<Strategy>) => set((state) => {
         if (!state.activeBrandId) return state;
         const brand = state.brands[state.activeBrandId]
+        const mergedStrategy = normalizeStrategy({
+          ...brand.strategy,
+          ...normalizeSocialStrategy(socialData),
+        }) as unknown as Strategy
         return {
           brands: {
             ...state.brands,
             [state.activeBrandId]: {
               ...brand,
-              strategy: { ...brand.strategy, ...socialData } as Strategy,
+              strategy: mergedStrategy,
               socialStrategyGenerated: true,
             }
           }
@@ -990,6 +995,15 @@ export const useBrandStore = create<BrandState>()(
           const key = await getUserStorageKey(name)
           await del(key)
         },
+      },
+      onRehydrateStorage: () => (state) => {
+        if (!state?.brands) return
+        for (const id of Object.keys(state.brands)) {
+          const brand = state.brands[id]
+          if (brand?.strategy) {
+            brand.strategy = normalizeStrategy(brand.strategy) as unknown as Strategy
+          }
+        }
       },
     }
   )

@@ -14,11 +14,12 @@ export function PageErrorBoundary({
   pageName?: string
 }) {
   useEffect(() => {
-    console.error(`${pageName} error:`, error)
+    console.error('[PageErrorBoundary]', pageName, error)
   }, [error, pageName])
 
   // Sanitize the error message so raw API/billing details never reach the user
   const safeMessage = error.message ? sanitizeErrorForUI(error.message) : ''
+  const digest = typeof error.digest === 'string' ? error.digest : ''
 
   return (
     <div className="flex items-center justify-center min-h-[60vh] p-8">
@@ -35,6 +36,9 @@ export function PageErrorBoundary({
             <p className="text-xs text-red-400 mt-3 font-mono bg-red-500/5 border border-red-500/10 rounded-lg p-3 break-all">
               {safeMessage}
             </p>
+          )}
+          {digest && (
+            <p className="text-[10px] text-slate-400 font-mono mt-2">Ref: {digest}</p>
           )}
         </div>
         <div className="flex gap-3 justify-center">

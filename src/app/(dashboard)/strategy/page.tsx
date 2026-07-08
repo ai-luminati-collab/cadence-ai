@@ -14,6 +14,7 @@ import { useBrandOSSignals } from '@/hooks/useBrandOSSignals'
 import { BrandOSEvolution } from '@/components/BrandOSEvolution'
 import { CompetitorIntel } from '@/components/ui/CompetitorIntel'
 import { parseStreamedResponse } from '@/lib/streaming-fetch'
+import { asText } from '@/lib/strategy-normalizer'
 
 const PLATFORM_ICONS: Record<string, { icon: any, color: string }> = {
   "Meta (Instagram & Facebook)": { icon: Infinity, color: "text-blue-400" },
@@ -182,11 +183,11 @@ function MediaUploadSection({ title, subtitle, icon, iconColor, assets, acceptTy
 
 /* ── Collapsible Card Component ── */
 function StrategyCard({ title, icon: Icon, iconColor, content, accentBorder, defaultOpen = false }: {
-  title: string, icon: any, iconColor: string, content: string, accentBorder?: string, defaultOpen?: boolean
+  title: string, icon: any, iconColor: string, content: unknown, accentBorder?: string, defaultOpen?: boolean
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen)
   
-  const safeContent = Array.isArray(content) ? content.join('\n') : (content || '')
+  const safeContent = asText(content)
   const points = safeContent
     .split(/\n+/)
     .flatMap(line => {
@@ -563,7 +564,7 @@ export default function StrategyPage() {
       </div>
 
       {/* ═══ SECTION 1.5: Strategic Pattern Intelligence ═══ */}
-      {strategy.strategicPatterns && strategy.strategicPatterns.length > 0 && (
+      {Array.isArray(strategy.strategicPatterns) && strategy.strategicPatterns.length > 0 && (
         <div className="mt-8">
           <h2 className="text-xs font-black text-emerald-500 uppercase tracking-widest mb-4 flex items-center gap-2">
             <Brain className="w-4 h-4" /> Pattern Intelligence Array
@@ -576,19 +577,19 @@ export default function StrategyPage() {
                     {idx + 1}
                   </div>
                   <span className="text-[9px] font-black uppercase tracking-widest text-[var(--color-text-muted)] bg-[var(--color-bg-hover)] px-2 py-1 rounded-md">
-                    {pattern.family}
+                    {asText(pattern.family)}
                   </span>
                 </div>
-                <h3 className="text-lg font-black text-[var(--color-text-primary)] leading-tight mb-2">{pattern.id}: {pattern.name}</h3>
-                <p className="text-xs font-bold text-[var(--color-text-secondary)] italic mb-4">"{pattern.description}"</p>
+                <h3 className="text-lg font-black text-[var(--color-text-primary)] leading-tight mb-2">{asText(pattern.id)}: {asText(pattern.name)}</h3>
+                <p className="text-xs font-bold text-[var(--color-text-secondary)] italic mb-4">"{asText(pattern.description)}"</p>
                 
                 <div className="space-y-2 mt-auto">
                   <p className="text-[9px] font-black text-[var(--color-text-muted)] uppercase tracking-widest">Execution Markers:</p>
                   <ul className="space-y-2">
-                    {pattern.executionMarkers?.map((marker, mIdx) => (
+                    {(Array.isArray(pattern.executionMarkers) ? pattern.executionMarkers : []).map((marker, mIdx) => (
                       <li key={mIdx} className="flex items-start gap-2 text-[11px] text-[var(--color-text-primary)] font-medium leading-snug">
                         <span className="w-1 h-1 rounded-full bg-emerald-400 mt-1.5 shrink-0" />
-                        <span>{marker}</span>
+                        <span>{asText(marker)}</span>
                       </li>
                     ))}
                   </ul>
@@ -825,7 +826,7 @@ export default function StrategyPage() {
           {strategy.psychographicTriggers && <StrategyCard title="Psychographic Triggers" icon={Brain} iconColor="bg-indigo-50 text-indigo-500" content={strategy.psychographicTriggers} accentBorder="border-indigo-200" />}
           {strategy.strategyGrid && <StrategyCard title="Overall Strategy Mechanics" icon={Target} iconColor="bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]" content={strategy.strategyGrid} />}
           {strategy.riskOpportunityMap && (() => {
-            const raw = Array.isArray(strategy.riskOpportunityMap) ? strategy.riskOpportunityMap.join('\n') : (strategy.riskOpportunityMap || '')
+            const raw = asText(strategy.riskOpportunityMap)
             const points = raw
               .split(/\n+/)
               .flatMap(line => {

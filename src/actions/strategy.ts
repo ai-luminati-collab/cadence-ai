@@ -1,7 +1,16 @@
 'use server'
 
+import Anthropic from '@anthropic-ai/sdk'
+import { requireParseJSON, withRetry } from '@/lib/ai-resilience'
+import { askExpertAgent, askExpertAgentPremium } from '@/lib/openai-agent'
+import { BrandInfo } from '@/stores/brand'
+import { buildProductContext } from '@/lib/product-context'
+import { getStrategicPatternLibrary, getCompilationSources } from '@/lib/knowledge-loader'
+import { normalizeStrategy, normalizeSocialStrategy } from '@/lib/strategy-normalizer'
+
 // Server-side error message sanitizer for action return values
-function sanitizeActionError(msg: any): string {
+function sanitizeActionError(msg: unknown): string {
+  if (msg instanceof Error) return sanitizeActionError(msg.message)
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
   const patterns = [
     [/credit balance is too low/i, 'AI service temporarily unavailable.'],
@@ -24,12 +33,246 @@ function sanitizeActionError(msg: any): string {
   return msg;
 }
 
-import { safeParseJSON, requireParseJSON, withRetry } from '@/lib/ai-resilience'
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === 'string') return message
+  }
+  return String(error)
+}
 
-import { askExpertAgent, askExpertAgentPremium } from '@/lib/openai-agent'
-import { BrandInfo } from '@/stores/brand'
-import { buildProductContext } from '@/lib/product-context'
-import { getStrategicPatternLibrary, getCompilationSources } from '@/lib/knowledge-loader'
+function shortErrorMessage(error: unknown): string {
+  return getErrorMessage(error).substring(0, 100)
+}
+
+const STRATEGY_STRUCTURED_MODEL = 'claude-opus-4-8'
+
+const MARKETING_STRATEGY_SCHEMA = {
+  type: 'object',
+  properties: {
+    oneLineStrategy: { type: 'string' },
+    targetAudience: { type: 'string' },
+    persona: { type: 'string' },
+    coreNarratives: { type: 'string' },
+    strategyGrid: { type: 'string' },
+    measurementPlan: { type: 'string' },
+    riskOpportunityMap: { type: 'string' },
+    competitorAnalysis: { type: 'string' },
+    psychographicTriggers: { type: 'string' },
+    strategicPatterns: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          name: { type: 'string' },
+          family: { type: 'string' },
+          description: { type: 'string' },
+          executionMarkers: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['id', 'name', 'family', 'description', 'executionMarkers'],
+        additionalProperties: false,
+      },
+    },
+    lastRefreshed: { type: 'string' },
+  },
+  required: [
+    'oneLineStrategy',
+    'targetAudience',
+    'persona',
+    'coreNarratives',
+    'strategyGrid',
+    'measurementPlan',
+    'riskOpportunityMap',
+    'competitorAnalysis',
+    'psychographicTriggers',
+    'strategicPatterns',
+    'lastRefreshed',
+  ],
+  additionalProperties: false,
+} as const
+
+const SOCIAL_STRATEGY_SCHEMA = {
+  type: 'object',
+  properties: {
+    socialCreativeKit: { type: 'string' },
+    platformPlaybooks: {
+      type: 'object',
+      additionalProperties: {
+        type: 'object',
+        properties: {
+          role: { type: 'string' },
+          mechanics: { type: 'string' },
+          toneModifier: { type: 'string' },
+          cadence: { type: 'string' },
+        },
+        required: ['role', 'mechanics', 'toneModifier', 'cadence'],
+        additionalProperties: false,
+      },
+    },
+    contentPillars: {
+      type: 'object',
+      additionalProperties: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            name: { type: 'string' },
+            description: { type: 'string' },
+            buckets: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  name: { type: 'string' },
+                  description: { type: 'string' },
+                  pillarId: { type: 'string' },
+                  suggestedMinPerMonth: { type: 'number' },
+                  suggestedMaxPerMonth: { type: 'number' },
+                  formats: { type: 'array', items: { type: 'string' } },
+                },
+                required: [
+                  'id',
+                  'name',
+                  'description',
+                  'pillarId',
+                  'suggestedMinPerMonth',
+                  'suggestedMaxPerMonth',
+                  'formats',
+                ],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ['id', 'name', 'description', 'buckets'],
+          additionalProperties: false,
+        },
+      },
+    },
+    compiledBrandOS: {
+      type: 'object',
+      properties: {
+        platformRules: { type: 'object', additionalProperties: { type: 'string' } },
+        categoryContext: {
+          type: 'object',
+          properties: {
+            categoryName: { type: 'string' },
+            clichesToAvoid: { type: 'array', items: { type: 'string' } },
+            whitespaceOpportunities: { type: 'array', items: { type: 'string' } },
+            differentiationSignals: { type: 'array', items: { type: 'string' } },
+          },
+          required: [
+            'categoryName',
+            'clichesToAvoid',
+            'whitespaceOpportunities',
+            'differentiationSignals',
+          ],
+          additionalProperties: false,
+        },
+        formatBlueprints: { type: 'object', additionalProperties: { type: 'string' } },
+        antiPatternChecklist: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              pattern: { type: 'string' },
+              detectionMarker: { type: 'string' },
+              fix: { type: 'string' },
+            },
+            required: ['pattern', 'detectionMarker', 'fix'],
+            additionalProperties: false,
+          },
+        },
+        qualityRules: {
+          type: 'object',
+          properties: {
+            bannedWords: { type: 'array', items: { type: 'string' } },
+            categoryCliches: { type: 'array', items: { type: 'string' } },
+            bossChecklist: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['bannedWords', 'categoryCliches', 'bossChecklist'],
+          additionalProperties: false,
+        },
+        compiledAt: { type: 'string' },
+      },
+      required: [
+        'platformRules',
+        'categoryContext',
+        'formatBlueprints',
+        'antiPatternChecklist',
+        'qualityRules',
+        'compiledAt',
+      ],
+      additionalProperties: false,
+    },
+  },
+  required: ['socialCreativeKit', 'platformPlaybooks', 'contentPillars', 'compiledBrandOS'],
+  additionalProperties: false,
+} as const
+
+type AnthropicTextBlock = {
+  type: string
+  text?: string
+}
+
+type StructuredAnthropicResponse = {
+  stop_reason?: string
+  content?: AnthropicTextBlock[]
+}
+
+type MarketingStrategyContext = {
+  oneLineStrategy?: string
+  targetAudience: string
+  persona: string
+  coreNarratives: string
+  competitorAnalysis?: string
+  psychographicTriggers?: string
+  strategicPatterns?: Array<{ name?: string }>
+}
+
+async function askClaudeStructured(prompt: string, schema: object): Promise<string> {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error('Missing ANTHROPIC_API_KEY.')
+  }
+
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  const stream = await client.messages.stream({
+    model: STRATEGY_STRUCTURED_MODEL,
+    max_tokens: 32000,
+    thinking: { type: 'adaptive' },
+    output_config: {
+      effort: 'high',
+      format: { type: 'json_schema', schema },
+    },
+    messages: [{ role: 'user', content: prompt }],
+  } as Parameters<typeof client.messages.stream>[0])
+
+  const response = await stream.finalMessage() as StructuredAnthropicResponse
+  if (response.stop_reason === 'refusal') {
+    throw new Error('Model declined the request')
+  }
+
+  const textBlock = response.content?.find((block) => block.type === 'text')
+  if (!textBlock?.text) throw new Error('Empty response from structured strategy generator')
+  return textBlock.text
+}
+
+function parseAIJsonText(result: string, context: string): unknown {
+  let resultText = (result || '').replace(/```json/ig, '').replace(/```/g, '').trim()
+  if (!resultText) throw new Error(`Agent returned empty ${context}`)
+
+  const firstBrace = resultText.indexOf('{')
+  const lastBrace = resultText.lastIndexOf('}')
+  if (firstBrace !== -1 && lastBrace !== -1) {
+    resultText = resultText.substring(firstBrace, lastBrace + 1)
+  }
+
+  return requireParseJSON(resultText, context)
+}
 
 // ═══════════════════════════════════════════════════════════════
 // PHASE 1: Marketing Strategy (runs at onboarding)
@@ -126,30 +369,28 @@ export async function generateMarketingStrategy(brandDetails: BrandInfo, isRefre
 
     if (process.env.ANTHROPIC_API_KEY) {
       try {
-        console.log('🧠 Marketing Strategy via Claude Opus (Premium)...')
-        res = await withRetry(() => askExpertAgentPremium(prompt))
-      } catch (claudeErr: any) {
-        console.warn('⚠️ Claude failed, falling back to GPT:', claudeErr?.message?.substring(0, 100))
-        res = await withRetry(() => askExpertAgent(prompt, false, ''))
+        console.log('🧠 Marketing Strategy via structured Claude Opus...')
+        const structured = await withRetry(() => askClaudeStructured(prompt, MARKETING_STRATEGY_SCHEMA))
+        res = { success: true, data: structured }
+      } catch (structuredErr: unknown) {
+        console.warn('⚠️ Structured Claude failed, trying premium chain:', shortErrorMessage(structuredErr))
+        try {
+          console.log('🧠 Marketing Strategy via Claude Opus (Premium)...')
+          res = await withRetry(() => askExpertAgentPremium(prompt))
+        } catch (claudeErr: unknown) {
+          console.warn('⚠️ Claude failed, falling back to GPT:', shortErrorMessage(claudeErr))
+          res = await withRetry(() => askExpertAgent(prompt, false, ''))
+        }
       }
     } else {
       res = await withRetry(() => askExpertAgent(prompt, false, ''))
     }
 
     if (!res.success) throw new Error("Agent failed execution.");
-
-    let resultText = (res.data || '').replace(/```json/ig, '').replace(/```/g, '').trim();
-    if (!resultText) throw new Error("Agent returned empty strategy");
-    const firstBrace = resultText.indexOf('{');
-    const lastBrace = resultText.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace !== -1) {
-      resultText = resultText.substring(firstBrace, lastBrace + 1);
-    }
-
-    return { success: true, data: requireParseJSON(resultText) };
-  } catch (error: any) {
+    return { success: true, data: normalizeStrategy(parseAIJsonText(res.data, 'marketing strategy')) };
+  } catch (error: unknown) {
     console.error("Marketing Strategy Failed:", error);
-    return { success: false, error: sanitizeActionError(error.message) || "Failed to generate strategy" };
+    return { success: false, error: sanitizeActionError(getErrorMessage(error)) || "Failed to generate strategy" };
   }
 }
 
@@ -158,15 +399,7 @@ export async function generateMarketingStrategy(brandDetails: BrandInfo, isRefre
 // Generates: platform playbooks, content pillars, compiled Brand OS
 // Uses Phase 1 marketing strategy as context for coherence
 // ═══════════════════════════════════════════════════════════════
-export async function generateSocialStrategy(brandDetails: BrandInfo, marketingStrategy: {
-  oneLineStrategy?: string
-  targetAudience: string
-  persona: string
-  coreNarratives: string
-  competitorAnalysis?: string
-  psychographicTriggers?: string
-  strategicPatterns?: any[]
-}) {
+export async function generateSocialStrategy(brandDetails: BrandInfo, marketingStrategy: MarketingStrategyContext) {
   if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('YOUR_KEY_HERE')) {
     throw new Error("Missing valid OPENAI_API_KEY in environment variables.")
   }
@@ -283,30 +516,28 @@ export async function generateSocialStrategy(brandDetails: BrandInfo, marketingS
 
     if (process.env.ANTHROPIC_API_KEY) {
       try {
-        console.log('🧠 Social Strategy via Claude Opus (Premium)...')
-        res = await withRetry(() => askExpertAgentPremium(prompt))
-      } catch (claudeErr: any) {
-        console.warn('⚠️ Claude failed, falling back to GPT:', claudeErr?.message?.substring(0, 100))
-        res = await withRetry(() => askExpertAgent(prompt, false, ''))
+        console.log('🧠 Social Strategy via structured Claude Opus...')
+        const structured = await withRetry(() => askClaudeStructured(prompt, SOCIAL_STRATEGY_SCHEMA))
+        res = { success: true, data: structured }
+      } catch (structuredErr: unknown) {
+        console.warn('⚠️ Structured Claude failed, trying premium chain:', shortErrorMessage(structuredErr))
+        try {
+          console.log('🧠 Social Strategy via Claude Opus (Premium)...')
+          res = await withRetry(() => askExpertAgentPremium(prompt))
+        } catch (claudeErr: unknown) {
+          console.warn('⚠️ Claude failed, falling back to GPT:', shortErrorMessage(claudeErr))
+          res = await withRetry(() => askExpertAgent(prompt, false, ''))
+        }
       }
     } else {
       res = await withRetry(() => askExpertAgent(prompt, false, ''))
     }
 
     if (!res.success) throw new Error("Agent failed execution.");
-
-    let resultText = (res.data || '').replace(/```json/ig, '').replace(/```/g, '').trim();
-    if (!resultText) throw new Error("Agent returned empty social strategy");
-    const firstBrace = resultText.indexOf('{');
-    const lastBrace = resultText.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace !== -1) {
-      resultText = resultText.substring(firstBrace, lastBrace + 1);
-    }
-
-    return { success: true, data: requireParseJSON(resultText) };
-  } catch (error: any) {
+    return { success: true, data: normalizeSocialStrategy(parseAIJsonText(res.data, 'social strategy')) };
+  } catch (error: unknown) {
     console.error("Social Strategy Failed:", error);
-    return { success: false, error: sanitizeActionError(error.message) || "Failed to generate social strategy" };
+    return { success: false, error: sanitizeActionError(getErrorMessage(error)) || "Failed to generate social strategy" };
   }
 }
 
@@ -319,12 +550,12 @@ export async function generateBrandStrategy(brandDetails: BrandInfo, isRefresh =
   if (!mktRes.success) return mktRes
 
   // Phase 2
-  const socialRes = await generateSocialStrategy(brandDetails, mktRes.data)
+  const socialRes = await generateSocialStrategy(brandDetails, mktRes.data as unknown as MarketingStrategyContext)
   if (!socialRes.success) {
     // Return Phase 1 even if Phase 2 fails — user can unlock social later
     return mktRes
   }
 
   // Merge both phases
-  return { success: true, data: { ...mktRes.data, ...socialRes.data } }
+  return { success: true, data: normalizeStrategy({ ...mktRes.data, ...socialRes.data }) }
 }
