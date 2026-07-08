@@ -402,7 +402,7 @@ export default function OnboardingPage() {
 
     try {
       // ──────────────────────────────────────────────
-      // LAYER 1: Gemini Deep Research (best quality)
+      // LAYER 1: OpenAI Deep Research (best quality)
       // ──────────────────────────────────────────────
       let deepResearchWorked = false
       try {

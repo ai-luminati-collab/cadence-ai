@@ -59,7 +59,7 @@ export interface BrandResearch {
 }
 
 /* ═══════════════════════════════════════════════════════
-   DEEP RESEARCH FLOW (Google Interactions API)
+   DEEP RESEARCH FLOW (OpenAI Responses API)
    Used for comprehensive brand intelligence gathering
    Takes 2-10 minutes in the background
    ═══════════════════════════════════════════════════════ */

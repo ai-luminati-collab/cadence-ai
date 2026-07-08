@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai'
+import OpenAI from 'openai'
 import { parseOffice, OfficeParserAST, OfficeContentNode } from 'officeparser'
 import JSZip from 'jszip'
 
@@ -15,20 +15,20 @@ function astToText(ast: OfficeParserAST): string {
  * Multi-format document parser for the Smart Product Importer.
  *
  * Strategy per file type:
- *   PDF        → sent directly to Gemini 2.5 Pro (handles embedded images, scans, layouts natively)
- *   Image      → sent directly to Gemini 2.5 Pro vision
- *   DOCX/PPTX  → text via officeparser  +  every embedded image extracted via JSZip and OCR'd by Gemini
+ *   PDF        → sent directly to OpenAI multimodal file input
+ *   Image      → sent directly to OpenAI vision
+ *   DOCX/PPTX  → text via officeparser  +  every embedded image extracted via JSZip and OCR'd by OpenAI vision
  *   TXT/MD     → read as UTF-8
  *
  * Returns a single normalized text blob per source ready to feed into productExtractor.extractFromText.
  */
 
-const GEMINI_MODEL = 'gemini-2.5-pro'
+const VISION_MODEL = 'gpt-5.5'
 
-function getGeminiClient() {
-  const apiKey = process.env.GOOGLE_API_KEY
-  if (!apiKey) throw new Error('Missing GOOGLE_API_KEY')
-  return new GoogleGenAI({ apiKey })
+function getOpenAIClient() {
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) throw new Error('Missing OPENAI_API_KEY')
+  return new OpenAI({ apiKey })
 }
 
 export interface ParsedDocument {
@@ -46,15 +46,15 @@ export async function parseDocument(
   const lower = fileName.toLowerCase()
   const warnings: string[] = []
 
-  // PDF → Gemini multimodal (best for menus / brochures with images)
+  // PDF → OpenAI multimodal file input
   if (mimeType === 'application/pdf' || lower.endsWith('.pdf')) {
-    const text = await geminiExtractFromPdf(buffer)
+    const text = await openAIExtractFromPdf(fileName, buffer)
     return { source: fileName, text, warnings }
   }
 
   // Standalone images
   if (mimeType.startsWith('image/')) {
-    const text = await geminiExtractFromImage(buffer, mimeType)
+    const text = await openAIExtractFromImage(buffer, mimeType)
     return { source: fileName, text, warnings }
   }
 
@@ -106,7 +106,7 @@ async function parseOfficeDocWithImages(
     warnings.push(`officeparser failed on ${fileName}: ${e?.message ?? e}`)
   }
 
-  // 2) Crack the zip and pull every embedded image, OCR each via Gemini vision
+  // 2) Crack the zip and pull every embedded image, OCR each via OpenAI vision
   let imageOcrText = ''
   try {
     const zip = await JSZip.loadAsync(buffer)
@@ -131,7 +131,7 @@ async function parseOfficeDocWithImages(
           const buf = Buffer.from(await zip.files[path].async('arraybuffer'))
           // Skip tiny icons / chrome elements
           if (buf.byteLength < 4 * 1024) continue
-          const ocr = await geminiExtractFromImage(buf, mime)
+          const ocr = await openAIExtractFromImage(buf, mime)
           if (ocr && ocr.trim().length > 0) {
             ocrResults.push(`[Embedded image: ${path.split('/').pop()}]\n${ocr}`)
           }
@@ -149,46 +149,56 @@ async function parseOfficeDocWithImages(
   return { source: fileName, text: combined, warnings }
 }
 
-// ── Gemini: PDF in one shot ──
-async function geminiExtractFromPdf(buffer: Buffer): Promise<string> {
-  const ai = getGeminiClient()
+// ── OpenAI: PDF in one shot ──
+async function openAIExtractFromPdf(fileName: string, buffer: Buffer): Promise<string> {
+  const openai = getOpenAIClient()
   const base64 = buffer.toString('base64')
 
-  const response = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: [
+  const response = await openai.responses.create({
+    model: VISION_MODEL,
+    input: [
       {
         role: 'user',
-        parts: [
-          { inlineData: { data: base64, mimeType: 'application/pdf' } },
+        content: [
           {
+            type: 'input_file',
+            filename: fileName,
+            file_data: `data:application/pdf;base64,${base64}`,
+          },
+          {
+            type: 'input_text',
             text:
               'Extract every product, menu item, service, package, SKU, or offering described in this document. ' +
               'Include any text visible inside images, photos, scanned pages, or graphics. ' +
               'For each item include: name, description, ingredients/features (if shown), price (if shown), category. ' +
-              'Be exhaustive — do not summarise. Output as plain text, one item per block, separated by blank lines.',
+              'Be exhaustive. Do not summarize. Output as plain text, one item per block, separated by blank lines.',
           },
         ],
       },
     ],
   })
 
-  return (response.text ?? '').trim()
+  return (response.output_text ?? '').trim()
 }
 
-// ── Gemini: single image OCR / extraction ──
-async function geminiExtractFromImage(buffer: Buffer, mimeType: string): Promise<string> {
-  const ai = getGeminiClient()
+// ── OpenAI: single image OCR / extraction ──
+async function openAIExtractFromImage(buffer: Buffer, mimeType: string): Promise<string> {
+  const openai = getOpenAIClient()
   const base64 = buffer.toString('base64')
 
-  const response = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: [
+  const response = await openai.responses.create({
+    model: VISION_MODEL,
+    input: [
       {
         role: 'user',
-        parts: [
-          { inlineData: { data: base64, mimeType: mimeType } },
+        content: [
           {
+            type: 'input_image',
+            image_url: `data:${mimeType};base64,${base64}`,
+            detail: 'high',
+          },
+          {
+            type: 'input_text',
             text:
               'Read this image carefully. Extract every product, menu item, service, price, description, or offering visible. ' +
               'Transcribe all readable text. If there are no products visible, return an empty response. ' +
@@ -199,5 +209,5 @@ async function geminiExtractFromImage(buffer: Buffer, mimeType: string): Promise
     ],
   })
 
-  return (response.text ?? '').trim()
+  return (response.output_text ?? '').trim()
 }

@@ -1,10 +1,15 @@
 'use server'
 
-import { GoogleGenAI } from '@google/genai'
+import OpenAI from 'openai'
 import { BrandInfo, Strategy, BrandUniverse, BrandAsset } from '@/stores/brand'
 import { requireParseJSON, withRetry } from '@/lib/ai-resilience'
 
-const googleAI = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY })
+function getOpenAI() {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('Missing OPENAI_API_KEY')
+  }
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+}
 
 function sanitizeActionError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.'
@@ -159,14 +164,15 @@ export async function extractBrandUniverse(
       return { success: false, error: 'No valid image references provided to analyze.' }
     }
 
-    const parts: any[] = []
+    const content: any[] = []
     
     // Add textual context
     const audienceContext = strategy?.targetAudience || brandInfo.primaryAudiences?.join(', ') || 'General Audience'
     const psychographics = strategy?.psychographicTriggers || brandInfo.psychographics || 'Unknown'
     const brandTone = strategy?.persona || brandInfo.tone?.join(', ') || 'Professional'
 
-    parts.push({
+    content.push({
+      type: 'input_text',
       text: `You are the world's most elite Creative Director and Visual Psychologist.
 You are tasked with analyzing the provided reference images to extract a strict "Brand Universe Matrix".
 
@@ -205,28 +211,25 @@ CRITICAL RULES:
       
       const match = b64Url.match(/^data:([^;]+);base64,(.+)$/)
       if (match) {
-        parts.push({
-          inlineData: {
-            mimeType: match[1],
-            data: match[2],
-          }
+        content.push({
+          type: 'input_image',
+          image_url: `data:${match[1]};base64,${match[2]}`,
+          detail: 'high',
         })
       }
     }
 
-    if (parts.length === 1) {
+    if (content.length === 1) {
       throw new Error("Failed to load any of the provided images.")
     }
 
-    const response = await withRetry(() => googleAI.models.generateContent({
-      model: 'gemini-3-pro-image-preview', // Pro multimodal can see and reason about images deeply
-      contents: [{ role: 'user', parts }],
-      config: {
-        temperature: 0.2, // Keep it highly analytical and consistent
-      }
+    const response = await withRetry(() => getOpenAI().responses.create({
+      model: 'gpt-5.5',
+      input: [{ role: 'user', content }],
+      temperature: 0.2,
     }))
 
-    const textOutput = response.candidates?.[0]?.content?.parts?.[0]?.text
+    const textOutput = response.output_text
     if (!textOutput) throw new Error("No analysis returned from the Vision model.")
 
     let cleaned = textOutput.trim()

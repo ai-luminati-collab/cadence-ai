@@ -25,28 +25,29 @@ function sanitizeActionError(msg: any): string {
 }
 
 
-import { GoogleGenAI } from '@google/genai'
 import OpenAI from 'openai'
 import { CalendarPost, ContentDraft, BrandInfo, Strategy, BrandAsset, PostReference, FeedAesthetic, VisualGuardrail, VisualRef } from '@/stores/brand'
 
-const getGoogleAI = () => new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY })
 const getOpenAI = () => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 // Available image generation models
 export type ImageModel = 
-  | 'nano-banana-pro'    // Gemini 3 Pro Image - professional quality, 4K, best reasoning
-  | 'nano-banana-2'      // Gemini 3.1 Flash Image - fast, cost-efficient
+  | 'gpt-image-2'        // OpenAI GPT Image 2 - highest fidelity
   | 'gpt-image-1.5'      // OpenAI GPT Image 1.5 - best text rendering
   | 'gpt-image-mini'     // OpenAI GPT Image Mini - cost-effective
 
 const MODEL_MAP = {
-  'nano-banana-pro': 'gemini-3-pro-image-preview',
-  'nano-banana-2': 'gemini-3.1-flash-image-preview',
+  'gpt-image-2': 'gpt-image-2',
   'gpt-image-1.5': 'gpt-image-1.5',
   'gpt-image-mini': 'gpt-image-1-mini',
 } as const
 
-const DEFAULT_MODEL: ImageModel = 'nano-banana-pro'
+const DEFAULT_MODEL: ImageModel = 'gpt-image-2'
+
+function normalizeImageModel(model: ImageModel | string): ImageModel {
+  if (model === 'gpt-image-2' || model === 'gpt-image-1.5' || model === 'gpt-image-mini') return model
+  return DEFAULT_MODEL
+}
 
 // ──────────────────────────────────────
 // Core Generation - Routes to correct provider
@@ -57,74 +58,78 @@ async function generateImage(
   model: ImageModel = DEFAULT_MODEL, 
   referenceImages?: string[]
 ): Promise<string> {
-  if (model === 'gpt-image-1.5' || model === 'gpt-image-mini') {
-    return generateViaOpenAI(prompt, MODEL_MAP[model])
-  } else {
-    return generateViaGoogle(prompt, MODEL_MAP[model], referenceImages)
-  }
-}
-
-/**
- * Generate via Google Nano Banana with optional reference image input.
- * Nano Banana Pro supports multi-modal input (text + images).
- */
-async function generateViaGoogle(prompt: string, modelId: string, referenceImages?: string[]): Promise<string> {
-  // Build content parts: text prompt + reference images
-  const parts: any[] = [{ text: prompt }]
-  
-  if (referenceImages && referenceImages.length > 0) {
-    // Take up to 3 reference images to avoid overloading
-    for (const refImg of referenceImages.slice(0, 3)) {
-      // Extract base64 data from data URL
-      const match = refImg.match(/^data:([^;]+);base64,(.+)$/)
-      if (match) {
-        parts.push({
-          inlineData: {
-            mimeType: match[1],
-            data: match[2],
-          }
-        })
-      }
-    }
-  }
-
-  const response = await getGoogleAI().models.generateContent({
-    model: modelId,
-    contents: parts.length > 1 ? [{ role: 'user', parts }] : prompt,
-  })
-
-  const candidates = response.candidates
-  if (!candidates || candidates.length === 0) {
-    throw new Error('No candidates returned from Nano Banana')
-  }
-
-  const responseParts = candidates[0].content?.parts
-  if (!responseParts) throw new Error('No parts in response')
-
-  for (const part of responseParts) {
-    if (part.inlineData?.data) {
-      const mimeType = part.inlineData.mimeType || 'image/png'
-      return `data:${mimeType};base64,${part.inlineData.data}`
-    }
-  }
-
-  throw new Error('No image data found in Nano Banana response')
+  const normalizedModel = normalizeImageModel(model)
+  return generateViaOpenAI(prompt, MODEL_MAP[normalizedModel], referenceImages)
 }
 
 /**
  * Generate via OpenAI GPT Image.
  */
-async function generateViaOpenAI(prompt: string, modelId: string): Promise<string> {
+async function generateViaOpenAI(prompt: string, modelId: string, referenceImages?: string[]): Promise<string> {
+  if (referenceImages?.length) {
+    return generateViaOpenAIWithReferences(prompt, modelId, referenceImages)
+  }
+
   const response = await getOpenAI().images.generate({
     model: modelId,
     prompt,
     n: 1,
     size: '1024x1024',
     quality: 'high',
-    response_format: 'b64_json',
+    output_format: 'png',
   })
 
   const b64 = response.data?.[0]?.b64_json
+  if (!b64) throw new Error('No image data returned from GPT Image')
+
+  return `data:image/png;base64,${b64}`
+}
+
+async function generateViaOpenAIWithReferences(prompt: string, modelId: string, referenceImages: string[]): Promise<string> {
+  const content: any[] = [
+    {
+      type: 'input_text',
+      text: prompt,
+    },
+  ]
+
+  for (const refImg of referenceImages.slice(0, 3)) {
+    const match = refImg.match(/^data:([^;]+);base64,(.+)$/)
+    if (match) {
+      content.push({
+        type: 'input_image',
+        image_url: `data:${match[1]};base64,${match[2]}`,
+        detail: 'high',
+      })
+    }
+  }
+
+  if (content.length === 1) {
+    return generateViaOpenAI(prompt, modelId)
+  }
+
+  const imageTool: any = {
+    type: 'image_generation',
+    model: modelId,
+    action: 'edit',
+    size: '1024x1024',
+    quality: 'high',
+    output_format: 'png',
+  }
+
+  if (modelId !== 'gpt-image-2' && modelId !== 'gpt-image-1-mini') {
+    imageTool.input_fidelity = 'high'
+  }
+
+  const response = await getOpenAI().responses.create({
+    model: 'gpt-5.5',
+    input: [{ role: 'user', content }],
+    tools: [imageTool],
+  })
+
+  const imageCall = response.output.find((output) => output.type === 'image_generation_call')
+  const b64 = imageCall?.type === 'image_generation_call' ? imageCall.result : null
+
   if (!b64) throw new Error('No image data returned from GPT Image')
 
   return `data:image/png;base64,${b64}`

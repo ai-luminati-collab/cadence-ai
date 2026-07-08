@@ -6,7 +6,7 @@
  *     └── Makes final decisions, reviews all agent outputs, proposes Brand OS changes
  *     └── Only model with authority to modify the Brand OS
  *
- *   Worker Agents (GPT-5.5 or Gemini 2.5 Pro)
+ *   Worker Agents (GPT-5.5)
  *     ├── Performance Analyst — reads metrics, identifies trends, explains WHY
  *     ├── Competitor Scout — monitors competitor activity, spots opportunities
  *     ├── Content Strategist — proposes calendar/format adjustments based on data
@@ -39,9 +39,8 @@ const CEO_MODEL_CHAIN = [
   'claude-sonnet-4-6',     // Emergency fallback
 ]
 
-// Worker model: GPT-5.5 (primary) or Gemini 2.5 Pro (secondary)
+// Worker model: GPT-5.5
 const WORKER_MODEL = 'gpt-5.5'
-// const WORKER_MODEL_FALLBACK = 'gemini-2.5-pro'  // TODO: Add Gemini client when needed
 
 // ── Agent Types ──
 

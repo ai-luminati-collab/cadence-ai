@@ -198,7 +198,7 @@ export default function CalendarPage() {
   // Image Generation
   const [isGeneratingVisual, setIsGeneratingVisual] = useState(false)
   const [visualGenProgress, setVisualGenProgress] = useState('')
-  const [imageModel, setImageModel] = useState<ImageModel>('nano-banana-pro')
+  const [imageModel, setImageModel] = useState<ImageModel>('gpt-image-2')
   
   // Feed Aesthetic & Tenure References
   const [feedAesthetic, setFeedAesthetic] = useState<import('@/stores/brand').FeedAesthetic>(null)
@@ -2104,8 +2104,7 @@ export default function CalendarPage() {
                                    onChange={(e) => setImageModel(e.target.value as ImageModel)}
                                    className="h-12 px-4 rounded-xl bg-[var(--color-bg-input)] border border-[var(--color-border-default)] text-xs font-black text-[var(--color-text-primary)] uppercase tracking-wider outline-none focus:border-pink-500 transition-colors"
                                 >
-                                   <option value="nano-banana-pro">Nano Banana Pro</option>
-                                   <option value="nano-banana-2">Nano Banana 2</option>
+                                   <option value="gpt-image-2">GPT Image 2</option>
                                    <option value="gpt-image-1.5">GPT Image 1.5</option>
                                    <option value="gpt-image-mini">GPT Image Mini</option>
                                 </select>

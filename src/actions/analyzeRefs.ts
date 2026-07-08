@@ -24,29 +24,29 @@ function sanitizeActionError(msg: any): string {
   return msg;
 }
 
-import { safeParseJSON, requireParseJSON, withRetry } from '@/lib/ai-resilience'
+import { requireParseJSON, withRetry } from '@/lib/ai-resilience'
 
-import { GoogleGenAI } from '@google/genai'
+import OpenAI from 'openai'
 import { BrandAsset, VisualGuardrail } from '@/stores/brand'
 
 /**
  * Analyzes brand reference images and extracts visual Do's and Don'ts
- * Uses Gemini Pro for multi-modal analysis
+ * Uses OpenAI vision for multi-modal analysis
  */
 export async function analyzeReferenceImages(
   references: BrandAsset[],
   brandName?: string
 ): Promise<{ success: boolean; data?: VisualGuardrail[]; error?: string }> {
-  const apiKey = process.env.GOOGLE_API_KEY
+  const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
-    return { success: false, error: 'Missing Google AI API key' }
+    return { success: false, error: 'Missing OpenAI API key' }
   }
 
   if (!references || references.length === 0) {
     return { success: false, error: 'No reference images provided' }
   }
 
-  const genAI = new GoogleGenAI({ apiKey })
+  const openai = new OpenAI({ apiKey })
 
   // Take up to 8 images for analysis
   const imageRefs = references
@@ -87,8 +87,7 @@ Respond ONLY in this exact JSON format:
 `
 
   try {
-    // Build parts array with images
-    const parts: any[] = [{ text: prompt }]
+    const content: any[] = [{ type: 'input_text', text: prompt }]
     
     for (const ref of imageRefs) {
       // Extract base64 data from data URL
@@ -96,28 +95,27 @@ Respond ONLY in this exact JSON format:
         const [header, base64Data] = ref.url.split(',')
         const mimeMatch = header.match(/data:(.*?);/)
         const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg'
-        parts.push({
-          inlineData: {
-            mimeType,
-            data: base64Data
-          }
+        content.push({
+          type: 'input_image',
+          image_url: `data:${mimeType};base64,${base64Data}`,
+          detail: 'high',
         })
       }
     }
 
-    if (parts.length < 2) {
+    if (content.length < 2) {
       return { success: false, error: 'Could not process reference images' }
     }
 
     console.log(`🔍 Analyzing ${imageRefs.length} reference images for visual guardrails...`)
     const startTime = Date.now()
 
-    const response = await genAI.models.generateContent({
-      model: 'gemini-2.5-pro',
-      contents: [{ role: 'user', parts }],
-    })
+    const response = await withRetry(() => openai.responses.create({
+      model: 'gpt-5.5',
+      input: [{ role: 'user', content }],
+    }))
 
-    const text = response.text || ''
+    const text = response.output_text || ''
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
     console.log(`✅ Visual analysis complete in ${elapsed}s`)
 
