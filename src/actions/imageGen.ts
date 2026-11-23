@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 // Server-side error message sanitizer for action return values
 function sanitizeActionError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -241,6 +242,7 @@ export async function generateStaticVisual(
   feedAesthetic?: FeedAesthetic,
   tenureRefs?: BrandAsset[],
 ): Promise<{ success: boolean; imageUrl?: string; error?: string }> {
+  await guardAI()
   try {
     const onImageCopy = draft.platformFields?.creativeHeadline || ''
     const bodyText = draft.platformFields?.creativeBody || ''
@@ -280,6 +282,7 @@ export async function generateCarouselVisuals(
   feedAesthetic?: FeedAesthetic,
   tenureRefs?: BrandAsset[],
 ): Promise<{ success: boolean; imageUrls?: string[]; error?: string }> {
+  await guardAI()
   try {
     const coverSlide = draft.platformFields?.coverSlide || ''
     const slideBreakdown = draft.platformFields?.slideBreakdown || ''
@@ -348,6 +351,7 @@ export async function generateStoryVisual(
   feedAesthetic?: FeedAesthetic,
   tenureRefs?: BrandAsset[],
 ): Promise<{ success: boolean; imageUrl?: string; error?: string }> {
+  await guardAI()
   try {
     const storyCopy = post.storyCopy || draft.platformFields?.storyCopy || ''
     const visualDirective = draft.platformFields?.visualDirective || draft.visualDescription || ''

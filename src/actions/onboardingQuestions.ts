@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 /**
  * Dynamic Onboarding Questions — powered by Claude Opus 4.8 directly.
  *
@@ -97,6 +98,7 @@ export async function generateOnboardingQuestions(
   brandName: string,
   industry: string,
 ): Promise<{ success: boolean; data?: DynamicOnboardingQuestions; error?: string }> {
+  await guardAI()
   if (!process.env.ANTHROPIC_API_KEY) {
     return { success: false, error: 'ANTHROPIC_API_KEY not configured' }
   }

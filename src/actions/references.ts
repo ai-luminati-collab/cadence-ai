@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 import { safeParseJSON, requireParseJSON, withRetry } from '@/lib/ai-resilience'
 
 import OpenAI from 'openai'
@@ -40,6 +41,7 @@ export async function findVisualReferences(
   strategy: Strategy | null,
   customQuery?: string  // user can override the AI-generated search query
 ): Promise<ReferenceSearchResult> {
+  await guardAI()
   if (!process.env.OPENAI_API_KEY) {
     return { success: false, error: 'Missing OPENAI_API_KEY' }
   }
@@ -72,6 +74,7 @@ export async function researchReferences(
   post: CalendarPost,
   brandInfo: BrandInfo
 ): Promise<ReferenceSearchResult> {
+  await guardAI()
   if (!process.env.OPENAI_API_KEY) {
     return { success: false, error: 'Missing OPENAI_API_KEY' }
   }
@@ -236,6 +239,7 @@ export async function findReferencesForCalendar(
   strategy: Strategy | null,
   onProgress?: (completed: number, total: number) => void
 ): Promise<Record<string, VisualReference[]>> {
+  await guardAI()
   const results: Record<string, VisualReference[]> = {}
 
   // Process sequentially to avoid rate limits (these are web searches)

@@ -1,6 +1,7 @@
 // src/stores/brand.ts
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { loadFromServer, scheduleSave, onRemoteBrand } from '@/lib/sync/brandSync'
 import { normalizeStrategy, normalizeSocialStrategy } from '@/lib/strategy-normalizer'
 
 export interface Strategy {
@@ -968,7 +969,7 @@ export const useBrandStore = create<BrandState>()(
             if (oldVal) {
               const { set } = await import('idb-keyval')
               await set(key, oldVal) // migrate to user-keyed
-              return JSON.parse(oldVal as string)
+              return await withServerState(JSON.parse(oldVal as string))
             }
             // Also check localStorage
             if (typeof localStorage !== 'undefined') {
@@ -977,17 +978,19 @@ export const useBrandStore = create<BrandState>()(
                 const { set } = await import('idb-keyval')
                 await set(key, lsVal)
                 localStorage.removeItem(name)
-                return JSON.parse(lsVal)
+                return await withServerState(JSON.parse(lsVal))
               }
             }
           }
-          return val ? JSON.parse(val as string) : null
+          const local = val ? JSON.parse(val as string) : null
+          return await withServerState(local)
         },
         setItem: async (name, value) => {
           if (typeof window === 'undefined') return
           const { set } = await import('idb-keyval')
           const key = await getUserStorageKey(name)
-          await set(key, JSON.stringify(value))
+          await set(key, JSON.stringify(value)) // local cache
+          scheduleSave((value as any)?.state?.brands || {}) // server (source of truth)
         },
         removeItem: async (name) => {
           if (typeof window === 'undefined') return
@@ -1008,6 +1011,31 @@ export const useBrandStore = create<BrandState>()(
     }
   )
 )
+
+/**
+ * Replace the locally cached brands with the server's copy (moving any
+ * local-only brands up first). Falls back to the local cache when the server
+ * isn't reachable.
+ */
+async function withServerState(local: any) {
+  const localBrands = local?.state?.brands || {}
+  const serverBrands = await loadFromServer(localBrands)
+  if (!serverBrands) return local
+  const active = local?.state?.activeBrandId
+  return {
+    version: local?.version ?? 0,
+    state: {
+      ...(local?.state || {}),
+      brands: serverBrands,
+      activeBrandId: active && serverBrands[active] ? active : null,
+    },
+  }
+}
+
+// A teammate's concurrent edit was merged on save: show the merged copy.
+onRemoteBrand((id, data) => {
+  useBrandStore.setState((state) => ({ brands: { ...state.brands, [id]: data } }))
+})
 
 /** Get a user-specific storage key so each login gets isolated data */
 async function getUserStorageKey(baseName: string): Promise<string> {

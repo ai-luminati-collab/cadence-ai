@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 // Server-side error message sanitizer for action return values
 function sanitizeActionError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -37,6 +38,7 @@ export async function analyzeReferenceImages(
   references: BrandAsset[],
   brandName?: string
 ): Promise<{ success: boolean; data?: VisualGuardrail[]; error?: string }> {
+  await guardAI()
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
     return { success: false, error: 'Missing OpenAI API key' }

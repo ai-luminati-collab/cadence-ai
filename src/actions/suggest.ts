@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 // Server-side error message sanitizer for action return values
 function sanitizeActionError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -39,6 +40,7 @@ export async function suggestFieldValue(
     previousAnswers?: Record<string, string>
   }
 ): Promise<{ success: boolean; suggestions?: string[]; error?: string }> {
+  await guardAI()
 
   const contextBlock = [
     `Brand: ${context.brandName}`,

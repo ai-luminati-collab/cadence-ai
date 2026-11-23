@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:db": "node supabase/tests/rls.test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
@@ -44,6 +45,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.3.16",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

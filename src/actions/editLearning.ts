@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 // Server-side error message sanitizer for action return values
 function sanitizeActionError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -40,6 +41,7 @@ export async function extractEditLearning(
   editedText: string,
   fieldName: string // e.g. "topic", "caption", "hookScript"
 ): Promise<{ success: boolean; data?: { insight: string; explanation: string }; error?: string }> {
+  await guardAI()
   
   // Don't learn from trivial edits (typo fixes, etc.)
   if (Math.abs(originalText.length - editedText.length) < 10 && 

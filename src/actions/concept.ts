@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 // Server-side error message sanitizer for action return values
 function sanitizeActionError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -31,6 +32,7 @@ import { BrandData } from '@/stores/brand'
 import { CalendarPost } from '@/stores/brand'
 
 export async function rerollConcept(brandData: BrandData, post: CalendarPost): Promise<{ success: boolean; data?: string; error?: string }> {
+  await guardAI()
   if (!brandData.brandInfo || !brandData.strategy) {
     return { success: false, error: "Missing brand info." }
   }
@@ -75,6 +77,7 @@ export interface SparringResponse {
 }
 
 export async function chatWithConcept(brandData: BrandData, post: CalendarPost, userPrompt: string): Promise<{ success: boolean; data?: SparringResponse; error?: string }> {
+  await guardAI()
   const coreProducts = brandData.brandInfo?.coreProducts || []
   const productListStr = coreProducts.length > 0 
     ? `\n\nCORE PRODUCTS (GROUND TRUTH — the brand ACTUALLY sells these):\n${coreProducts.map((p, i) => `  ${i+1}. ${p}`).join('\n')}\n`

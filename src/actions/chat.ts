@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 // Server-side error message sanitizer for action return values
 function sanitizeActionError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -34,6 +35,7 @@ export async function chatWithCopyCopilot(
   userInstruction: string,
   postContext: string
 ): Promise<{ success: boolean; data?: ContentDraft; error?: string }> {
+  await guardAI()
   
   if (!process.env.OPENAI_API_KEY) {
     throw new Error("Missing valid OPENAI_API_KEY in environment variables.")

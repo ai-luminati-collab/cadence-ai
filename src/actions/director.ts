@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 // Server-side error message sanitizer for action return values
 function sanitizeActionError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -45,6 +46,7 @@ export async function chatWithDirector(
   recentPosts?: CalendarPost[],
   recentDrafts?: Record<string, ContentDraft>
 ): Promise<{ success: boolean; data?: DirectorResponse; error?: string }> {
+  await guardAI()
 
   // Build context about recent content so the CD knows what they're reviewing
   const recentContentSummary = recentPosts?.slice(0, 5).map(p => {
@@ -158,6 +160,7 @@ export async function detectBrandGaps(
   brandInfo: BrandInfo,
   strategy?: Strategy | null
 ): Promise<{ success: boolean; data?: { hasGaps: boolean; questions: { question: string; severity: 'critical' | 'high' | 'medium'; category: string }[] }; error?: string }> {
+  await guardAI()
 
   const prompt = `You are the Creative Director reviewing a brand profile for completeness and internal consistency.
 

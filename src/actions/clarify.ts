@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 // Server-side error message sanitizer for action return values
 function sanitizeActionError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -50,6 +51,7 @@ export async function generateClarifyingQuestions(
     extraNotes?: string
   }
 ): Promise<{ success: boolean; questions?: ClarifyingQuestion[]; error?: string }> {
+  await guardAI()
 
   const prompt = `You are the Legendary Marketer — a world-class brand strategist preparing to build a comprehensive brand strategy.
 

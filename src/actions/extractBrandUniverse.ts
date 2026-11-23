@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 import OpenAI from 'openai'
 import { BrandInfo, Strategy, BrandUniverse, BrandAsset } from '@/stores/brand'
 import { requireParseJSON, withRetry } from '@/lib/ai-resilience'
@@ -138,6 +139,7 @@ export async function extractBrandUniverse(
   referenceUrls?: string[],
   referenceAssets?: BrandAsset[]
 ): Promise<{ success: boolean; data?: BrandUniverse; error?: string }> {
+  await guardAI()
   try {
     // Collect all image URLs to analyze
     const urlsToAnalyze: string[] = []

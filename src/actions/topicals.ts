@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 // Server-side error message sanitizer for action return values
 function sanitizeActionError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -42,6 +43,7 @@ export async function generateTopicals(
   brandDetails: BrandInfo,
   targetMonths: string[] // e.g. ["2026-04", "2026-05"]
 ): Promise<{ success: boolean; data?: TopicalEvent[]; error?: string }> {
+  await guardAI()
   try {
     if (!process.env.OPENAI_API_KEY) {
       return { success: false, error: "Missing valid OPENAI_API_KEY in environment variables." }

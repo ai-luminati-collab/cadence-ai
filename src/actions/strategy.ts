@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 import Anthropic from '@anthropic-ai/sdk'
 import { requireParseJSON, withRetry } from '@/lib/ai-resilience'
 import { askExpertAgent, askExpertAgentPremium } from '@/lib/openai-agent'
@@ -280,6 +281,7 @@ function parseAIJsonText(result: string, context: string): unknown {
 // psychographic triggers, strategic patterns, measurement plan
 // ═══════════════════════════════════════════════════════════════
 export async function generateMarketingStrategy(brandDetails: BrandInfo, isRefresh = false) {
+  await guardAI()
   if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('YOUR_KEY_HERE')) {
     throw new Error("Missing valid OPENAI_API_KEY in environment variables.")
   }
@@ -400,6 +402,7 @@ export async function generateMarketingStrategy(brandDetails: BrandInfo, isRefre
 // Uses Phase 1 marketing strategy as context for coherence
 // ═══════════════════════════════════════════════════════════════
 export async function generateSocialStrategy(brandDetails: BrandInfo, marketingStrategy: MarketingStrategyContext) {
+  await guardAI()
   if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('YOUR_KEY_HERE')) {
     throw new Error("Missing valid OPENAI_API_KEY in environment variables.")
   }
@@ -545,6 +548,7 @@ export async function generateSocialStrategy(brandDetails: BrandInfo, marketingS
 // LEGACY: Full strategy in one shot (kept for backward compat)
 // ═══════════════════════════════════════════════════════════════
 export async function generateBrandStrategy(brandDetails: BrandInfo, isRefresh = false) {
+  await guardAI()
   // Phase 1
   const mktRes = await generateMarketingStrategy(brandDetails, isRefresh)
   if (!mktRes.success) return mktRes

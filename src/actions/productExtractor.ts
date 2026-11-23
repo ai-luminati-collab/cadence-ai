@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 // Server-side error message sanitizer for action return values
 function sanitizeActionError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -41,6 +42,7 @@ export async function extractFromUrl(url: string): Promise<{
   data?: { products?: ProductEntry[], services?: ServiceEntry[], rawSummary: string }
   error?: string
 }> {
+  await guardAI()
   try {
     // Use Jina to scrape the URL content
     const { extractWebsiteContent } = await import('@/lib/jina')
@@ -66,6 +68,7 @@ export async function extractFromMultipleSources(input: {
   error?: string
   warnings?: string[]
 }> {
+  await guardAI()
   const warnings: string[] = []
   const corpusParts: string[] = []
 
@@ -110,6 +113,7 @@ export async function extractFromText(rawText: string, sourceLabel: string = 'ma
   data?: { products?: ProductEntry[], services?: ServiceEntry[], rawSummary: string }
   error?: string
 }> {
+  await guardAI()
   const prompt = `You are a world-class product intelligence analyst. Your job is to determine exactly WHAT this brand sells or offers, based on the provided content.
 
 SOURCE: ${sourceLabel}

@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 // Server-side error message sanitizer for action return values
 function sanitizeActionError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -71,6 +72,7 @@ export async function startBrandDeepResearch(
   website?: string,
   brandDescription?: string
 ): Promise<{ success: boolean; interactionId?: string; error?: string }> {
+  await guardAI()
   
   if (!name && !website) {
     return { success: false, error: 'Must provide either a brand name or a website URL.' };
@@ -113,6 +115,7 @@ Be SPECIFIC. Use data, numbers, and real examples. Do NOT write generic marketin
 
 /** Step 2: Poll the status of an ongoing deep research job */
 export async function pollDeepResearch(interactionId: string) {
+  await guardAI()
   return checkDeepResearchStatus(interactionId)
 }
 
@@ -122,6 +125,7 @@ export async function synthesizeResearchReport(
   brandName: string,
   industry: string,
 ): Promise<{ success: boolean; data?: BrandResearch; error?: string }> {
+  await guardAI()
 
   const prompt = `You have just received an exhaustive deep research report on the brand "${brandName}" in the ${industry} industry.
 
@@ -211,6 +215,7 @@ export async function researchBrand(
   website?: string,
   brandDescription?: string
 ): Promise<{ success: boolean; data?: BrandResearch; error?: string }> {
+  await guardAI()
   
   let scrapedWebsiteContext = ''
   if (website) {

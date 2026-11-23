@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 // Server-side error message sanitizer for action return values
 function sanitizeActionError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -30,6 +31,7 @@ import { askExpertAgent } from '@/lib/openai-agent'
 import { BrandInfo, Strategy, PredictedMetrics } from '@/stores/brand'
 
 export async function generatePredictedPerformance(brandInfo: BrandInfo, strategy: Strategy): Promise<{ success: boolean; data?: PredictedMetrics; error?: string }> {
+  await guardAI()
    if (!process.env.OPENAI_API_KEY) {
       throw new Error("Missing valid OPENAI_API_KEY in environment variables.")
    }

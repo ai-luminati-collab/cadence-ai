@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 // Server-side error message sanitizer for action return values
 function sanitizeActionError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -47,6 +48,7 @@ export async function auditKnowledgeBase(
   brandInfo: BrandInfo,
   currentDate: string
 ): Promise<{ success: boolean; data?: AuditResult[]; error?: string }> {
+  await guardAI()
   
   const rules = brandInfo.aiKnowledgeBase || []
   

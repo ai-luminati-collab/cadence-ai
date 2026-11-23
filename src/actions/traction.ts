@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 // Server-side error message sanitizer for action return values
 function sanitizeActionError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -38,6 +39,7 @@ interface TractionParams {
  * Silently drops any vectors where API keys are missing.
  */
 export async function synthesizeMarketTraction(brandData: BrandData, params?: TractionParams): Promise<{ success: boolean; data?: string; error?: string }> {
+  await guardAI()
   if (!brandData.brandInfo) return { success: false, error: "Missing brand info." }
   
   const { name, industry, primaryAudiences } = brandData.brandInfo

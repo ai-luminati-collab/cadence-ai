@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 // Server-side error message sanitizer for action return values
 function sanitizeActionError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -43,6 +44,7 @@ export async function extractEpiphany(
   value: string, 
   context: EpiphanyContext
 ): Promise<{ success: boolean; insight?: string; error?: string }> {
+  await guardAI()
   
   if (!value || value.trim() === '') return { success: false, error: 'Empty value' }
 

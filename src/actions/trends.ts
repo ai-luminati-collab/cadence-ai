@@ -1,5 +1,6 @@
 'use server'
 
+import { guardAI } from '@/lib/auth/session'
 // Server-side error message sanitizer for action return values
 function sanitizeActionError(msg: any): string {
   if (!msg || typeof msg !== 'string') return 'An unexpected error occurred.';
@@ -38,6 +39,7 @@ export interface TrendItem {
 }
 
 export async function fetchLiveTrends(): Promise<{ success: boolean; data?: TrendItem[]; error?: string }> {
+  await guardAI()
   try {
     // We aggregate multiple entertainment/pop-culture hubs to source "Instagram-worthy" trends
     // e.g., movies, celebrity, viral memes.
@@ -144,6 +146,7 @@ export async function hijackTrend(
    brandInfo: BrandInfo,
    strategy: Strategy
 ) {
+  await guardAI()
    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('YOUR_KEY_HERE')) {
      throw new Error("Missing valid OPENAI_API_KEY in environment variables.")
    }
