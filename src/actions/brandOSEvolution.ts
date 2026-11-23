@@ -24,7 +24,7 @@ function sanitizeActionError(msg: any): string {
   return msg;
 }
 
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/supabase/server'
 import { requireParseJSON, withRetry } from '@/lib/ai-resilience'
 import { askExpertAgentPremium } from '@/lib/openai-agent'
 import {
@@ -42,11 +42,14 @@ import { BrandInfo, Strategy } from '@/stores/brand'
 
 // ─── SUPABASE CLIENT ───────────────────────────────────────────
 
-function getSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  if (!url || !key) throw new Error('Missing Supabase configuration')
-  return createClient(url, key)
+// Uses the signed-in user's session (cookies), so Postgres RLS sees auth.uid()
+// and each user can only reach their own rows. user_id on writes always comes
+// from this session, never from the caller.
+async function getSupabase() {
+  const supabase = await createClient()
+  const { data: { user }, error } = await supabase.auth.getUser()
+  if (error || !user) throw new Error('Your session has expired. Please sign in again.')
+  return { supabase, userId: user.id }
 }
 
 // ─── EVENT LOGGING ─────────────────────────────────────────────
@@ -59,13 +62,13 @@ export async function logBrandOSEvent(
   event: Omit<BrandOSEvent, 'id' | 'createdAt'>
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   try {
-    const supabase = getSupabase()
+    const { supabase, userId: sessionUserId } = await getSupabase()
 
     const { data, error } = await supabase
       .from('brand_os_events')
       .insert({
         brand_id: event.brandId,
-        user_id: event.userId,
+        user_id: sessionUserId,
         event_type: event.eventType,
         category: event.category,
         platform: event.platform || null,
@@ -239,7 +242,7 @@ export async function generateChangeProposals(
   phase: LearningPhase
 ): Promise<{ success: boolean; proposals?: Array<{ eventId: string; change: string; confidence: number; category: KnowledgeCategory }>; error?: string }> {
   try {
-    const supabase = getSupabase()
+    const { supabase } = await getSupabase()
     const confidenceGate = getConfidenceGate(phase)
 
     // Get unprocessed events
@@ -372,7 +375,7 @@ export async function acceptChange(
   ruleText?: string // optional override if user edited the proposal
 ): Promise<{ success: boolean; rule?: KnowledgeRule; error?: string }> {
   try {
-    const supabase = getSupabase()
+    const { supabase } = await getSupabase()
 
     // Get the event
     const { data: event, error } = await supabase
@@ -425,7 +428,7 @@ export async function rejectChange(
   eventId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const supabase = getSupabase()
+    const { supabase } = await getSupabase()
 
     await supabase
       .from('brand_os_events')
@@ -451,7 +454,7 @@ export async function getPendingChanges(
   brandId: string
 ): Promise<{ success: boolean; changes?: BrandOSEvent[]; error?: string }> {
   try {
-    const supabase = getSupabase()
+    const { supabase } = await getSupabase()
 
     const { data, error } = await supabase
       .from('brand_os_events')
@@ -495,12 +498,13 @@ export async function saveBrandOSSnapshot(
   snapshot: Omit<BrandOSSnapshot, 'id' | 'createdAt'>
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   try {
-    const supabase = getSupabase()
+    const { supabase, userId: sessionUserId } = await getSupabase()
 
     const { data, error } = await supabase
       .from('brand_os_snapshots')
       .insert({
         brand_id: snapshot.brandId,
+        user_id: sessionUserId,
         snapshot_data: snapshot.snapshotData,
         trigger: snapshot.trigger,
         rule_count: snapshot.ruleCount,
@@ -526,7 +530,7 @@ export async function getSnapshotHistory(
   limit = 20
 ): Promise<{ success: boolean; snapshots?: BrandOSSnapshot[]; error?: string }> {
   try {
-    const supabase = getSupabase()
+    const { supabase } = await getSupabase()
 
     const { data, error } = await supabase
       .from('brand_os_snapshots')
@@ -566,13 +570,13 @@ export async function saveConvergenceMetrics(
   metrics: ConvergenceMetrics
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const supabase = getSupabase()
+    const { supabase, userId: sessionUserId } = await getSupabase()
 
     const { error } = await supabase
       .from('convergence_metrics')
       .upsert({
         brand_id: brandId,
-        user_id: userId,
+        user_id: sessionUserId,
         window_day: metrics.windowDay,
         measured_at: metrics.measuredAt,
         edit_rate: metrics.editRate,
@@ -603,7 +607,7 @@ export async function getConvergenceHistory(
   days = 30
 ): Promise<{ success: boolean; metrics?: ConvergenceMetrics[]; error?: string }> {
   try {
-    const supabase = getSupabase()
+    const { supabase } = await getSupabase()
 
     const { data, error } = await supabase
       .from('convergence_metrics')

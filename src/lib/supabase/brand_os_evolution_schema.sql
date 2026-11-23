@@ -162,10 +162,10 @@ CREATE POLICY "Users manage own metrics" ON convergence_metrics
 
 -- Service role (cron jobs, server actions) can access everything
 CREATE POLICY "Service role full access events" ON brand_os_events
-  FOR ALL USING (true) WITH CHECK (true);
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 CREATE POLICY "Service role full access snapshots" ON brand_os_snapshots
-  FOR ALL USING (true) WITH CHECK (true);
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 CREATE POLICY "Service role full access metrics" ON convergence_metrics
-  FOR ALL USING (true) WITH CHECK (true);
+  FOR ALL TO service_role USING (true) WITH CHECK (true);

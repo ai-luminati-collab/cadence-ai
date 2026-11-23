@@ -40,5 +40,6 @@ USING (true);
 -- Only service_role can write (cron job runs server-side with service key)
 CREATE POLICY "Service role write access for algorithm state"
 ON global_algorithm_state FOR ALL
+TO service_role
 USING (true)
 WITH CHECK (true);
